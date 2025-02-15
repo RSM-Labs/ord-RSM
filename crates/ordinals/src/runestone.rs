@@ -1,4 +1,9 @@
 use {super::*, flag::Flag, message::Message, tag::Tag};
+use crate::burn::{Burn2, Burn3, Proof};
+use crate::dao::Dao;
+use crate::ext::Ext;
+use crate::mint::{Mint2, Mint3};
+use crate::trading::Trading;
 
 mod flag;
 mod message;
@@ -10,6 +15,10 @@ pub struct Runestone {
   pub etching: Option<Etching>,
   pub mint: Option<RuneId>,
   pub pointer: Option<u32>,
+  pub mint2s: Option<Vec<Mint2>>,
+  pub mint3s: Option<Vec<Mint3>>,
+  pub burn2s: Option<Burn2>,
+  pub burn3s: Option<Burn3>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,6 +53,12 @@ impl Runestone {
     let Message {
       mut flaw,
       edicts,
+      mint20_edicts,
+      mint21_edicts,
+      mint30_edicts,
+      mint31_edicts,
+      burn2_edicts,
+      burn3_edicts,
       mut fields,
     } = Message::from_integers(transaction, &integers);
 
@@ -58,6 +73,8 @@ impl Runestone {
       }),
       premine: Tag::Premine.take(&mut fields, |[premine]| Some(premine)),
       rune: Tag::Rune.take(&mut fields, |[rune]| Some(Rune(rune))),
+      parent: (Tag::ParentBlock.take(&mut fields, |[block]| u64::try_from(block).ok()),
+               Tag::ParentTx.take(&mut fields, |[tx]| u32::try_from(tx).ok())),
       spacers: Tag::Spacers.take(&mut fields, |[spacers]| {
         let spacers = u32::try_from(spacers).ok()?;
         (spacers <= Etching::MAX_SPACERS).then_some(spacers)
@@ -84,6 +101,27 @@ impl Runestone {
         ),
       }),
       turbo: Flag::Turbo.take(&mut flags),
+      contract: Tag::Contract.take(&mut  fields, |[contract]| {Some(contract as u8)}),
+      mint2_amount: Tag::Mint2Amount.take(&mut fields, |[mint2_amount]| {Some(mint2_amount)}),
+      burn3_able_rune_ids: (Tag::Burn3AbleRuneIdsStart.take(&mut fields, |[rune]| {Some(Rune(rune))}),
+                            Tag::Burn3AbleRuneIdsEnd.take(&mut fields, |[rune]| {Some(Rune(rune))})),
+      trading: Flag::Trading.take(&mut flags).then(|| Trading {
+        black_hole_percentage: Tag::BlackHolePercentage.take(&mut fields, |[black_hole_percentage]| {u32::try_from(black_hole_percentage).ok()}),
+        tax_percentage: Tag::TaxPercentage.take(&mut fields, |[tax_percentage]| {u32::try_from(tax_percentage).ok()}),
+        lp_fee_percentage: Tag::LpFeePercentage.take(&mut fields, |[lp_fee_percentage]| {u32::try_from(lp_fee_percentage).ok()}),
+        service_fee_percentage: Tag::ServiceFeePercentage.take(&mut fields, |[service_fee_percentage]| {u32::try_from(service_fee_percentage).ok()}),
+      }),
+      dao: Flag::Dao.take(&mut flags).then(|| Dao {
+        started: Tag::Started.take(&mut fields, |[started]| {Some(started != 0)}),
+        vote_limit: Tag::VoteLimit.take(&mut fields, |[vote_limit]| {u32::try_from(vote_limit).ok()}),
+        time_lock: Tag::TimeLock.take(&mut fields, |[time_lock]| {u32::try_from(time_lock).ok()}),
+      }),
+      ext: Flag::EtchingExt.take(&mut flags).then(|| Ext {
+        amount0_min: Tag::Amount0Min.take(&mut fields, |[amount0_min]| {u32::try_from(amount0_min).ok()}),
+        amount1_min: Tag::Amount1Min.take(&mut fields, |[amount1_min]| {u32::try_from(amount1_min).ok()}),
+        amount_out_min: Tag::AmountOutMin.take(&mut fields, |[amount_out_min]| {u32::try_from(amount_out_min).ok()}),
+        deadline: Tag::Deadline.take(&mut fields, |[deadline]| {u32::try_from(deadline).ok()}),
+      }),
     });
 
     let mint = Tag::Mint.take(&mut fields, |[block, tx]| {
@@ -93,6 +131,122 @@ impl Runestone {
     let pointer = Tag::Pointer.take(&mut fields, |[pointer]| {
       let pointer = u32::try_from(pointer).ok()?;
       (u64::from(pointer) < u64::try_from(transaction.output.len()).unwrap()).then_some(pointer)
+    });
+
+    let mint2s = Flag::Mint2s.take(&mut flags).then(|| {
+      let mut mint2s = Vec::new();
+      if mint20_edicts.is_some() {
+        mint2s.push(Mint2 {
+          state_transition_function: Tag::Mint20StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()),
+          edicts: mint20_edicts,
+          proof: Tag::Mint20Proof.take(&mut fields, |[block, tx, output, amount]| {
+            Some(Proof {
+              block: u64::try_from(block).unwrap(),
+              tx: u32::try_from(tx).unwrap(),
+              output: u32::try_from(output).unwrap(),
+              amount: u32::try_from(amount).unwrap(),
+            })
+          }),
+        });
+      }
+      if mint21_edicts.is_some() {
+        mint2s.push(Mint2 {
+          state_transition_function: Tag::Mint21StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()),
+          edicts: mint21_edicts,
+          proof: Tag::Mint21Proof.take(&mut fields, |[block, tx, output, amount]| {
+            Some(Proof {
+              block: u64::try_from(block).unwrap(),
+              tx: u32::try_from(tx).unwrap(),
+              output: u32::try_from(output).unwrap(),
+              amount: u32::try_from(amount).unwrap(),
+            })
+          }),
+        });
+      }
+      return mint2s;
+    });
+
+    let mint3s = Flag::Mint3s.take(&mut flags).then(|| {
+      let mut mint3s = Vec::new();
+      if mint30_edicts.is_some() {
+        mint3s.push(Mint3 {
+          state_transition_function: Tag::Mint30StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()),
+          edicts: mint30_edicts,
+          proof: Tag::Mint30Proof.take(&mut fields, |[block, tx, output, amount]| {
+            Some(Proof {
+              block: u64::try_from(block).unwrap(),
+              tx: u32::try_from(tx).unwrap(),
+              output: u32::try_from(output).unwrap(),
+              amount: u32::try_from(amount).unwrap(),
+            })
+          }),
+        });
+      }
+      if mint31_edicts.is_some() {
+        mint3s.push(Mint3 {
+          state_transition_function: Tag::Mint31StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()),
+          edicts: mint31_edicts,
+          proof: Tag::Mint31Proof.take(&mut fields, |[block, tx, output, amount]| {
+            Some(Proof {
+              block: u64::try_from(block).unwrap(),
+              tx: u32::try_from(tx).unwrap(),
+              output: u32::try_from(output).unwrap(),
+              amount: u32::try_from(amount).unwrap(),
+            })
+          }),
+        });
+      }
+      return mint3s;
+    });
+
+    let burn2s = Flag::Burn2s.take(&mut flags).then(|| {
+      Burn2 {
+        to: Tag::Burn2To.take(&mut fields, |[block, tx]| {
+          RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
+        }
+        ).unwrap(),
+        state_transition_function: Tag::Burn2StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()).unwrap(),
+        edicts: burn2_edicts.unwrap(),
+        proof: Tag::Burn2Proof.take(&mut fields, |[block, tx, output, amount]| {
+          Some(Proof {
+            block: u64::try_from(block).unwrap(),
+            tx: u32::try_from(tx).unwrap(),
+            output: u32::try_from(output).unwrap(),
+            amount: u32::try_from(amount).unwrap(),
+          })
+        }),
+        ext: Flag::Burn2sExt.take(&mut flags).then(|| Ext {
+          amount0_min: Tag::Amount0Min.take(&mut fields, |[amount0_min]|{u32::try_from(amount0_min).ok()}),
+          amount1_min: Tag::Amount1Min.take(&mut fields, |[amount1_min]|{u32::try_from(amount1_min).ok()}),
+          amount_out_min: Tag::AmountOutMin.take(&mut fields, |[amount1_min]|{u32::try_from(amount1_min).ok()}),
+          deadline: Tag::Deadline.take(&mut fields, |[deadline]|{u32::try_from(deadline).ok()}),
+        }),
+      }
+    });
+
+    let burn3s = Flag::Burn3s.take(&mut flags).then(|| {
+      Burn3 {
+        to: Tag::Burn3To.take(&mut fields, |[block, tx]| {
+          RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
+        }
+        ).unwrap(),
+        state_transition_function: Tag::Burn3StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()).unwrap(),
+        edicts: burn3_edicts.unwrap(),
+        proof: Tag::Burn3Proof.take(&mut fields, |[block, tx, output, amount]| {
+          Some(Proof {
+            block: u64::try_from(block).unwrap(),
+            tx: u32::try_from(tx).unwrap(),
+            output: u32::try_from(output).unwrap(),
+            amount: u32::try_from(amount).unwrap(),
+          })
+        }),
+        ext: Flag::Burn3sExt.take(&mut flags).then(|| Ext {
+          amount0_min: Tag::Amount0Min.take(&mut fields, |[amount0_min]|{u32::try_from(amount0_min).ok()}),
+          amount1_min: Tag::Amount1Min.take(&mut fields, |[amount1_min]|{u32::try_from(amount1_min).ok()}),
+          amount_out_min: Tag::AmountOutMin.take(&mut fields, |[amount1_min]|{u32::try_from(amount1_min).ok()}),
+          deadline: Tag::Deadline.take(&mut fields, |[deadline]|{u32::try_from(deadline).ok()}),
+        }),
+      }
     });
 
     if etching
@@ -123,14 +277,37 @@ impl Runestone {
       etching,
       mint,
       pointer,
+      mint2s,
+      mint3s,
+      burn2s,
+      burn3s,
     }))
   }
 
   pub fn encipher(&self) -> ScriptBuf {
     let mut payload = Vec::new();
+    let mut flags = 0;
+
+    if self.mint2s.is_some() {
+      Flag::Mint2s.set(&mut flags);
+    }
+    if self.mint3s.is_some() {
+      Flag::Mint3s.set(&mut flags);
+    }
+    if self.burn2s.is_some() {
+      Flag::Burn2s.set(&mut flags);
+      if self.burn2s.as_ref().unwrap().ext.is_some() {
+        Flag::Burn2sExt.set(&mut flags);
+      }
+    }
+    if self.burn3s.is_some() {
+      Flag::Burn3s.set(&mut flags);
+      if self.burn3s.as_ref().unwrap().ext.is_some() {
+        Flag::Burn3sExt.set(&mut flags);
+      }
+    }
 
     if let Some(etching) = self.etching {
-      let mut flags = 0;
       Flag::Etching.set(&mut flags);
 
       if etching.terms.is_some() {
@@ -141,6 +318,18 @@ impl Runestone {
         Flag::Turbo.set(&mut flags);
       }
 
+      if etching.trading.is_some() {
+        Flag::Trading.set(&mut flags);
+      }
+
+      if etching.dao.is_some() {
+        Flag::Dao.set(&mut flags);
+      }
+
+      if etching.ext.is_some() {
+        Flag::EtchingExt.set(&mut flags);
+      }
+
       Tag::Flags.encode([flags], &mut payload);
 
       Tag::Rune.encode_option(etching.rune.map(|rune| rune.0), &mut payload);
@@ -148,6 +337,10 @@ impl Runestone {
       Tag::Spacers.encode_option(etching.spacers, &mut payload);
       Tag::Symbol.encode_option(etching.symbol, &mut payload);
       Tag::Premine.encode_option(etching.premine, &mut payload);
+
+      let (parent_block, parent_tx) = etching.parent;
+      Tag::ParentBlock.encode_option(parent_block, &mut payload);
+      Tag::ParentTx.encode_option(parent_tx, &mut payload);
 
       if let Some(terms) = etching.terms {
         Tag::Amount.encode_option(terms.amount, &mut payload);
@@ -157,6 +350,32 @@ impl Runestone {
         Tag::OffsetStart.encode_option(terms.offset.0, &mut payload);
         Tag::OffsetEnd.encode_option(terms.offset.1, &mut payload);
       }
+
+      Tag::Contract.encode_option(etching.contract, &mut payload);
+      Tag::Mint2Amount.encode_option(etching.mint2_amount, &mut payload);
+
+      let (burn3_able_rune_id0, burn3_able_rune_id1) = etching.burn3_able_rune_ids;
+      Tag::Burn3AbleRuneIdsStart.encode_option(burn3_able_rune_id0.map(|rune| rune.0), &mut payload);
+      Tag::Burn3AbleRuneIdsEnd.encode_option(burn3_able_rune_id1.map(|rune| rune.0), &mut payload);
+
+      if let Some(trading) = etching.trading {
+        Tag::BlackHolePercentage.encode_option(trading.black_hole_percentage, &mut payload);
+        Tag::TaxPercentage.encode_option(trading.tax_percentage, &mut payload);
+        Tag::LpFeePercentage.encode_option(trading.lp_fee_percentage, &mut payload);
+        Tag::ServiceFeePercentage.encode_option(trading.service_fee_percentage, &mut payload);
+      }
+
+      if let Some(dao) = etching.dao {
+        Tag::Started.encode_option(dao.started, &mut payload);
+        Tag::VoteLimit.encode_option(dao.vote_limit, &mut payload);
+        Tag::TimeLock.encode_option(dao.time_lock, &mut payload);
+      }
+
+      if let Some(ext) = etching.ext {
+        Tag::Amount0Min.encode_option(ext.amount0_min, &mut payload);
+        Tag::Amount1Min.encode_option(ext.amount1_min, &mut payload);
+        Tag::Deadline.encode_option(ext.deadline, &mut payload);
+      }
     }
 
     if let Some(RuneId { block, tx }) = self.mint {
@@ -164,6 +383,50 @@ impl Runestone {
     }
 
     Tag::Pointer.encode_option(self.pointer, &mut payload);
+
+    if let Some(mint2s) = &self.mint2s {
+      if let Some(mint20) = mint2s.get(0) {
+        Tag::Mint20StateTransitionFunction.encode_option(mint20.state_transition_function, &mut payload);
+        if let Some(proof) = &mint20.proof {
+          Tag::Mint20Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
+        }
+      }
+      if let Some(mint21) = mint2s.get(1) {
+        Tag::Mint21StateTransitionFunction.encode_option(mint21.state_transition_function, &mut payload);
+        if let Some(proof) = &mint21.proof {
+          Tag::Mint21Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
+        }
+      }
+    }
+
+    if let Some(mint3s) = &self.mint3s {
+      if let Some(mint30) = mint3s.get(0) {
+        Tag::Mint30StateTransitionFunction.encode_option(mint30.state_transition_function, &mut payload);
+        if let Some(proof) = &mint30.proof {
+          Tag::Mint30Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
+        }
+      }
+      if let Some(mint31) = mint3s.get(1) {
+        Tag::Mint31StateTransitionFunction.encode_option(mint31.state_transition_function, &mut payload);
+        if let Some(proof) = &mint31.proof {
+          Tag::Mint31Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
+        }
+      }
+    }
+
+    if let Some(burn2) = &self.burn2s {
+      Tag::Burn2StateTransitionFunction.encode_option(Some(burn2.state_transition_function), &mut payload);
+      if let Some(proof) = &burn2.proof {
+        Tag::Burn2Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
+      }
+    }
+
+    if let Some(burn3) = &self.burn3s {
+      Tag::Burn3StateTransitionFunction.encode_option(Some(burn3.state_transition_function), &mut payload);
+      if let Some(proof) = &burn3.proof {
+        Tag::Burn3Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
+      }
+    }
 
     if !self.edicts.is_empty() {
       varint::encode_to_vec(Tag::Body.into(), &mut payload);
@@ -179,6 +442,122 @@ impl Runestone {
         varint::encode_to_vec(edict.amount, &mut payload);
         varint::encode_to_vec(edict.output.into(), &mut payload);
         previous = edict.id;
+      }
+    }
+
+    if let Some(mint2s) = &self.mint2s {
+      if let Some(mint20) = mint2s.get(0) {
+        if mint20.edicts.is_some() {
+          varint::encode_to_vec(Tag::Mint20Body.into(), &mut payload);
+
+          let mut edicts = mint20.edicts.clone().unwrap();
+          edicts.sort_by_key(|edict| edict.id);
+
+          let mut previous = RuneId::default();
+          for edict in edicts {
+            let (block, tx) = previous.delta(edict.id).unwrap();
+            varint::encode_to_vec(block, &mut payload);
+            varint::encode_to_vec(tx, &mut payload);
+            varint::encode_to_vec(edict.amount, &mut payload);
+            varint::encode_to_vec(edict.output.into(), &mut payload);
+            previous = edict.id;
+          }
+        }
+      }
+      if let Some(mint21) = mint2s.get(1) {
+        if mint21.edicts.is_some() {
+          varint::encode_to_vec(Tag::Mint21Body.into(), &mut payload);
+
+          let mut edicts = mint21.edicts.clone().unwrap();
+          edicts.sort_by_key(|edict| edict.id);
+
+          let mut previous = RuneId::default();
+          for edict in edicts {
+            let (block, tx) = previous.delta(edict.id).unwrap();
+            varint::encode_to_vec(block, &mut payload);
+            varint::encode_to_vec(tx, &mut payload);
+            varint::encode_to_vec(edict.amount, &mut payload);
+            varint::encode_to_vec(edict.output.into(), &mut payload);
+            previous = edict.id;
+          }
+        }
+      }
+    }
+
+    if let Some(mint3s) = &self.mint3s {
+      if let Some(mint30) = mint3s.get(0) {
+        if mint30.edicts.is_some() {
+          varint::encode_to_vec(Tag::Mint30Body.into(), &mut payload);
+
+          let mut edicts = mint30.edicts.clone().unwrap();
+          edicts.sort_by_key(|edict| edict.id);
+
+          let mut previous = RuneId::default();
+          for edict in edicts {
+            let (block, tx) = previous.delta(edict.id).unwrap();
+            varint::encode_to_vec(block, &mut payload);
+            varint::encode_to_vec(tx, &mut payload);
+            varint::encode_to_vec(edict.amount, &mut payload);
+            varint::encode_to_vec(edict.output.into(), &mut payload);
+            previous = edict.id;
+          }
+        }
+      }
+      if let Some(mint31) = mint3s.get(1) {
+        if mint31.edicts.is_some() {
+          varint::encode_to_vec(Tag::Mint31Body.into(), &mut payload);
+
+          let mut edicts = mint31.edicts.clone().unwrap();
+          edicts.sort_by_key(|edict| edict.id);
+
+          let mut previous = RuneId::default();
+          for edict in edicts {
+            let (block, tx) = previous.delta(edict.id).unwrap();
+            varint::encode_to_vec(block, &mut payload);
+            varint::encode_to_vec(tx, &mut payload);
+            varint::encode_to_vec(edict.amount, &mut payload);
+            varint::encode_to_vec(edict.output.into(), &mut payload);
+            previous = edict.id;
+          }
+        }
+      }
+    }
+
+    if let Some(burn2) = &self.burn2s {
+      if burn2.edicts.is_empty() {
+        varint::encode_to_vec(Tag::Burn2Body.into(), &mut payload);
+
+        let mut edicts = burn2.edicts.clone();
+        edicts.sort_by_key(|edict| edict.id);
+
+        let mut previous = RuneId::default();
+        for edict in edicts {
+          let (block, tx) = previous.delta(edict.id).unwrap();
+          varint::encode_to_vec(block, &mut payload);
+          varint::encode_to_vec(tx, &mut payload);
+          varint::encode_to_vec(edict.amount, &mut payload);
+          varint::encode_to_vec(edict.output.into(), &mut payload);
+          previous = edict.id;
+        }
+      }
+    }
+
+    if let Some(burn3) = &self.burn3s {
+      if burn3.edicts.is_empty() {
+        varint::encode_to_vec(Tag::Burn3Body.into(), &mut payload);
+
+        let mut edicts = burn3.edicts.clone();
+        edicts.sort_by_key(|edict| edict.id);
+
+        let mut previous = RuneId::default();
+        for edict in edicts {
+          let (block, tx) = previous.delta(edict.id).unwrap();
+          varint::encode_to_vec(block, &mut payload);
+          varint::encode_to_vec(tx, &mut payload);
+          varint::encode_to_vec(edict.amount, &mut payload);
+          varint::encode_to_vec(edict.output.into(), &mut payload);
+          previous = edict.id;
+        }
       }
     }
 
@@ -1119,6 +1498,7 @@ mod tests {
           divisibility: Some(1),
           premine: Some(8),
           rune: Some(Rune(4)),
+          parent: (None, None),
           spacers: Some(5),
           symbol: Some('a'),
           terms: Some(Terms {
@@ -1128,10 +1508,19 @@ mod tests {
             height: (None, None),
           }),
           turbo: true,
+          contract: None,
+          mint2_amount: None,
+          burn3_able_rune_ids: (None, None),
+          trading: None,
+          dao: None,
+          ext: None,
         }),
         pointer: Some(0),
+        mint2s: None,
+        mint3s: None,
+        burn2s: None,
         mint: Some(RuneId::new(1, 1).unwrap()),
-      }),
+      burn3s: None,}),
     );
   }
 
@@ -1441,10 +1830,17 @@ mod tests {
           height: (Some(u32::MAX.into()), Some(u32::MAX.into())),
         }),
         turbo: true,
+        contract: None,
+        mint2_amount: None,
+        burn3_able_rune_ids: (None, None),
+        trading: None,
+        dao: None,
         premine: Some(u64::MAX.into()),
         rune: Some(Rune(u128::MAX)),
         symbol: Some('\u{10FFFF}'),
         spacers: Some(Etching::MAX_SPACERS),
+        parent: (None, None),
+        ext: None,
       }),
       89,
     );
@@ -1704,6 +2100,7 @@ mod tests {
           divisibility: Some(7),
           premine: Some(8),
           rune: Some(Rune(9)),
+          parent: (None, None),
           spacers: Some(10),
           symbol: Some('@'),
           terms: Some(Terms {
@@ -1713,9 +2110,19 @@ mod tests {
             offset: (Some(15), Some(16)),
           }),
           turbo: true,
+          contract: None,
+          mint2_amount: None,
+          burn3_able_rune_ids: (None, None),
+          trading: None,
+          dao: None,
+          ext: None,
         }),
         mint: Some(RuneId::new(17, 18).unwrap()),
         pointer: Some(0),
+        mint2s: None,
+        mint3s: None,
+        burn2s: None,
+        burn3s: None,
       },
       &[
         Tag::Flags.into(),
@@ -1766,10 +2173,17 @@ mod tests {
           divisibility: None,
           premine: None,
           rune: Some(Rune(3)),
+          parent: (None, None),
           spacers: None,
           symbol: None,
           terms: None,
           turbo: false,
+          contract: None,
+          mint2_amount: None,
+          burn3_able_rune_ids: (None, None),
+          trading: None,
+          dao: None,
+          ext: None,
         }),
         ..default()
       },
@@ -1782,10 +2196,17 @@ mod tests {
           divisibility: None,
           premine: None,
           rune: None,
+          parent: (None, None),
           spacers: None,
           symbol: None,
           terms: None,
           turbo: false,
+          contract: None,
+          mint2_amount: None,
+          burn3_able_rune_ids: (None, None),
+          trading: None,
+          dao: None,
+          ext: None,
         }),
         ..default()
       },

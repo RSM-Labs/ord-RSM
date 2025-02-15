@@ -1,3 +1,6 @@
+use crate::dao::Dao;
+use crate::ext::Ext;
+use crate::trading::Trading;
 use super::*;
 
 #[derive(Default, Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Eq)]
@@ -5,10 +8,17 @@ pub struct Etching {
   pub divisibility: Option<u8>,
   pub premine: Option<u128>,
   pub rune: Option<Rune>,
+  pub parent: (Option<u64>, Option<u32>),
   pub spacers: Option<u32>,
   pub symbol: Option<char>,
   pub terms: Option<Terms>,
   pub turbo: bool,
+  pub contract: Option<u8>,
+  pub mint2_amount: Option<u128>,
+  pub burn3_able_rune_ids: (Option<Rune>, Option<Rune>),
+  pub trading: Option<Trading>,
+  pub dao: Option<Dao>,
+  pub ext: Option<Ext>,
 }
 
 impl Etching {

@@ -14,6 +14,52 @@ pub(super) enum Tag {
   OffsetEnd = 18,
   Mint = 20,
   Pointer = 22,
+
+  Contract = 24,
+  Mint2Amount = 26,
+  Burn3AbleRuneIdsStart = 28,
+  Burn3AbleRuneIdsEnd = 30,
+  BlackHolePercentage = 32,
+  TaxPercentage = 34,
+  LpFeePercentage = 36,
+  ServiceFeePercentage = 38,
+  ParentBlock = 40,
+  ParentTx = 42,
+  Started = 44,
+  VoteLimit = 46,
+  TimeLock = 48,
+
+  Amount0Min = 50,
+  Amount1Min = 52,
+  AmountOutMin = 54,
+  Deadline = 56,
+
+  Mint20StateTransitionFunction = 58,
+  Mint20Proof = 60,
+  Mint20Body = 62,
+
+  Mint21StateTransitionFunction = 64,
+  Mint21Proof = 66,
+  Mint21Body = 68,
+
+  Mint30StateTransitionFunction = 70,
+  Mint30Proof = 72,
+  Mint30Body = 74,
+
+  Mint31StateTransitionFunction = 76,
+  Mint31Proof = 78,
+  Mint31Body = 80,
+
+  Burn2StateTransitionFunction = 82,
+  Burn2To = 84,
+  Burn2Proof = 86,
+  Burn2Body = 88,
+
+  Burn3StateTransitionFunction = 90,
+  Burn3To = 92,
+  Burn3Proof = 94,
+  Burn3Body = 96,
+
   #[allow(unused)]
   Cenotaph = 126,
 

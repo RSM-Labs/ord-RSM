@@ -1,3 +1,4 @@
+use rsm::runes_state_machine::RunesStateMachine;
 use super::*;
 
 pub(super) struct RuneUpdater<'a, 'tx, 'client> {
@@ -15,10 +16,11 @@ pub(super) struct RuneUpdater<'a, 'tx, 'client> {
   pub(super) sequence_number_to_rune_id: &'a mut Table<'tx, u32, RuneIdValue>,
   pub(super) statistic_to_count: &'a mut Table<'tx, u64, u64>,
   pub(super) transaction_id_to_rune: &'a mut Table<'tx, &'static TxidValue, u128>,
+  pub(super) runes_state_machine: &'a mut RunesStateMachine,
 }
 
 impl RuneUpdater<'_, '_, '_> {
-  pub(super) fn index_runes(&mut self, tx_index: u32, tx: &Transaction, txid: Txid) -> Result<()> {
+  pub(super) fn index_runes(&mut self, block_height: u32, block_time: u32, tx_index: u32, tx: &Transaction, txid: Txid) -> Result<()> {
     let artifact = Runestone::decipher(tx);
 
     let mut unallocated = self.unallocated(tx)?;
@@ -119,6 +121,18 @@ impl RuneUpdater<'_, '_, '_> {
 
             allocate(balance, amount, output);
           }
+        }
+
+        //For RSM
+        let runestone_fields: [bool; 5] = [
+          (Some(&runestone.etching).is_some()),
+          (Some(&runestone.burn2s).is_some()),
+          (Some(&runestone.burn3s).is_some()),
+          (Some(&runestone.mint2s).is_some()),
+          (Some(&runestone.mint3s).is_some()),
+        ];
+        if runestone_fields.iter().any(|&x| x) {
+          self.runes_state_machine.invoke_contract_event(runestone, tx, u64::try_from(block_height)?, block_time, tx_index, txid);
         }
       }
 

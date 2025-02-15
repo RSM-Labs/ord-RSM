@@ -35,7 +35,7 @@ use {
     sync::Once,
   },
 };
-
+use rsm::runes_state_machine::RunesStateMachine;
 pub use self::entry::RuneEntry;
 
 pub(crate) mod entry;

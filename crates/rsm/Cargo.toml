@@ -1,0 +1,18 @@
+[package]
+name = "rsm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcoin = {version = "0.32.3", features = ["rand"]}
+derive_more = {version = "1.0.0", features = ["display", "from_str"]}
+serde = {version = "1.0.137", features = ["derive"]}
+serde_with = "3.7.0"
+thiserror = "2.0.0"
+chrono = {version = "0.4.19", features = ["serde"]}
+ordinals = {version = "0.0.14", path = "../ordinals"}
+log = "0.4.25"
+
+[dev-dependencies]
+serde_json = {version = "1.0.81", features = ["preserve_order"]}
+pretty_assertions = "1.2.1"

@@ -2,6 +2,15 @@ pub(super) enum Flag {
   Etching = 0,
   Terms = 1,
   Turbo = 2,
+  Trading = 3,
+  Dao = 4,
+  EtchingExt = 5,
+  Mint2s = 6,
+  Mint3s = 7,
+  Burn2s = 8,
+  Burn3s = 9,
+  Burn2sExt = 10,
+  Burn3sExt =11,
   #[allow(unused)]
   Cenotaph = 127,
 }

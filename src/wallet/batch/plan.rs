@@ -453,6 +453,7 @@ impl Plan {
           divisibility: (etching.divisibility > 0).then_some(etching.divisibility),
           premine: (premine > 0).then_some(premine),
           rune: Some(etching.rune.rune),
+          parent: (None, None),
           spacers: (etching.rune.spacers > 0).then_some(etching.rune.spacers),
           symbol: Some(etching.symbol),
           terms: etching
@@ -473,9 +474,19 @@ impl Plan {
             })
             .transpose()?,
           turbo: etching.turbo,
+          contract: None,
+          mint2_amount: None,
+          burn3_able_rune_ids: (None, None),
+          trading: None,
+          dao: None,
+          ext: None,
         }),
         mint: None,
         pointer: (premine > 0).then_some((reveal_outputs.len() - 1).try_into().unwrap()),
+        mint2s: None,
+        mint3s: None,
+        burn2s: None,
+        burn3s: None,
       };
 
       let script_pubkey = inner.encipher();
