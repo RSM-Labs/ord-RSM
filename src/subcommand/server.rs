@@ -38,7 +38,7 @@ use {
     validate_request::ValidateRequestHeaderLayer,
   },
 };
-
+use rsm::state::State;
 pub use server_config::ServerConfig;
 
 mod accept_encoding;
@@ -77,6 +77,45 @@ struct Search {
 #[derive(RustEmbed)]
 #[folder = "static"]
 struct StaticAssets;
+
+#[derive(Deserialize)]
+struct QueryAddLiquidity {
+  contract_id: String,
+  a0e: f64,
+  a1e: f64,
+  slippage: f64,
+  deadline: u64,
+}
+
+#[derive(Deserialize)]
+struct QueryRemoveLiquidity {
+  contract_id: String,
+  lp_amount: f64,
+  slippage: f64,
+  deadline: u64
+}
+
+#[derive(Deserialize)]
+struct QuerySwap {
+  contract_id: String,
+  ticker_in: String,
+  amount_in: f64,
+  slippage: f64,
+  deadline: u64
+}
+
+#[derive(Deserialize)]
+struct GetState {
+  contract_id: String,
+  state_name: State,
+  address: String,
+  ticker: String
+}
+
+#[derive(Deserialize)]
+struct GetContractInfo {
+  contract_id: String,
+}
 
 #[derive(Debug, Parser, Clone)]
 pub struct Server {
@@ -286,6 +325,11 @@ impl Server {
         .route("/tx/:txid", get(Self::transaction))
         .route("/decode/:txid", get(Self::decode))
         .route("/update", get(Self::update))
+        .route("/rsm/add/query_add_liquidity_result", get(Self::query_add_liquidity_result))
+        .route("/rsm/remove/query_remove_liquidity_result", get(Self::query_remove_liquidity_result))
+        .route("/rsm/add/query_swap_result", get(Self::query_swap_result))
+        .route("/rsm/add/get_state", get(Self::get_state))
+        .route("/rsm/add/get_contract_info", get(Self::get_contract_info))
         .fallback(Self::fallback)
         .layer(Extension(index))
         .layer(Extension(server_config.clone()))
@@ -2300,6 +2344,73 @@ impl Server {
     }
 
     Redirect::to(&destination)
+  }
+
+  async fn query_add_liquidity_result(
+    Extension(index): Extension<Arc<Index>>,
+    Query(query_add_liquidity): Query<QueryAddLiquidity>
+  ) -> ServerResult<String> {
+    task::block_in_place(|| {
+      let contract_id = query_add_liquidity.contract_id;
+      let a0e = query_add_liquidity.a0e;
+      let a1e = query_add_liquidity.a1e;
+      let slippage = query_add_liquidity.slippage;
+      let deadline = query_add_liquidity.deadline;
+      let result = index.runes_state_machine.read().query_add_liquidity_result(contract_id, a0e, a1e, slippage, deadline);
+      Ok(serde_json::to_string(&result).unwrap())
+    })
+  }
+
+  async fn query_remove_liquidity_result(
+    Extension(index): Extension<Arc<Index>>,
+    Query(query_remove_liquidity): Query<QueryRemoveLiquidity>
+  ) -> ServerResult<String> {
+    task::block_in_place(|| {
+      let contract_id = query_remove_liquidity.contract_id;
+      let lp_amount = query_remove_liquidity.lp_amount;
+      let slippage = query_remove_liquidity.slippage;
+      let deadline = query_remove_liquidity.deadline;
+      let result = index.runes_state_machine.read().query_remove_liquidity_result(contract_id, lp_amount, slippage, deadline);
+      Ok(serde_json::to_string(&result).unwrap())
+    })
+  }
+
+  async fn query_swap_result(
+    Extension(index): Extension<Arc<Index>>,
+    Query(query_swap): Query<QuerySwap>
+  ) -> ServerResult<String> {
+    task::block_in_place(|| {
+      let contract_id = query_swap.contract_id;
+      let ticker_in = query_swap.ticker_in;
+      let amount_in = query_swap.amount_in;
+      let slippage = query_swap.slippage;
+      let deadline = query_swap.deadline;
+      let result = index.runes_state_machine.read().query_swap_result(contract_id, ticker_in, amount_in, slippage, deadline);
+      Ok(serde_json::to_string(&result).unwrap())
+    })
+  }
+
+  async fn get_state(
+    Extension(index): Extension<Arc<Index>>,
+    Query(get_state): Query<GetState>
+  ) -> ServerResult<String> {
+      let contract_id = get_state.contract_id;
+      let state_name = get_state.state_name;
+      let address = get_state.address;
+      let ticker = get_state.ticker;
+      let result = index.runes_state_machine.read().get_state(contract_id, state_name, address, ticker);
+      Ok(result.to_string())
+  }
+
+  async fn get_contract_info(
+    Extension(index): Extension<Arc<Index>>,
+    Query(get_contract_info): Query<GetContractInfo>
+  ) -> ServerResult<String> {
+    task::block_in_place(|| {
+      let contract_id = get_contract_info.contract_id;
+      let result = index.runes_state_machine.read().get_contract_info(contract_id);
+      Ok(result)
+    })
   }
 }
 

@@ -1,6 +1,7 @@
 use std::fmt;
 use std::fmt::Formatter;
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 
 pub struct StateDB {
     pub block_height: u32,
@@ -18,6 +19,7 @@ impl Default for StateDB {
     }
 }
 
+#[derive(Deserialize)]
 pub enum State {
     RecoverableStateBalanceForMint2,
     RecoverableStateBalanceForMint3,

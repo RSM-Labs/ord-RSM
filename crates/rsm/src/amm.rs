@@ -1,8 +1,12 @@
 use std::any::Any;
+use std::sync::Arc;
+use serde::Deserialize;
+use serde_with::serde_derive::Serialize;
 use crate::context::OperateContext;
-use crate::contract::{Contract, ContractExecResult, WrappedRuneContract};
+use crate::contract::{Contract, ContractExecResult, RuneContractInfo, WrappedRuneContract};
 use crate::state::State;
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AutomatedLiquidityContract {
     pub ticker0: String,
     pub ticker0_decimals: i64,
@@ -15,8 +19,46 @@ pub struct AutomatedLiquidityContract {
 }
 
 impl Contract for AutomatedLiquidityContract {
+    fn clone_box(&self) -> Arc<dyn Contract> {
+        Arc::new(self.clone())
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn get_info(&self) -> String {
+        let contract_info = RuneContractInfo {
+            parent: self.wrapped_rune_contract.parent,
+            myself: self.wrapped_rune_contract.myself,
+            rune: self.wrapped_rune_contract.rune,
+            contract: self.wrapped_rune_contract.contract,
+            mint2_amount: self.wrapped_rune_contract.mint2_amount,
+            burn3_able_rune_ids: self.wrapped_rune_contract.burn3_able_rune_ids,
+            trading: self.wrapped_rune_contract.trading,
+            dao: self.wrapped_rune_contract.dao,
+        };
+        serde_json::to_string(&contract_info).unwrap()
+    }
+
+    fn dump_state(&self) -> String {
+        let json = serde_json::to_string(self).unwrap();
+        json
+    }
+
+    fn get_state(&self, state_name: State, address: String, ticker: String) -> f64 {
+        match state_name {
+            State::Reserve0 => {
+                self.reserve0
+            },
+            State::Reserve1 => {
+                self.reserve1
+            },
+            State::Supply => {
+                self.supply
+            },
+            _ => self.wrapped_rune_contract.get_state(state_name, address, ticker),
+        }
     }
 
     fn add_liquidity(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult> {
@@ -147,6 +189,195 @@ impl Contract for AutomatedLiquidityContract {
         match exec_result {
             ContractExecResult::Success(_0) => Ok(()),
             err => Err(err),
+        }
+    }
+
+    fn query_add_liquidity_result(&self, a0e: f64, a1e: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        if a0e <= 0.0 {
+            log::error!("a0e must be greater than 0.");
+            return AmmCalculateResult::new()
+        }
+        if a1e <= 0.0 {
+            log::error!("a1e must be greater than 0.");
+            return AmmCalculateResult::new()
+        }
+        if slippage <= 0.0 || slippage >= 1.0 {
+            log::error!("slippage must be in (0, 1).");
+            return AmmCalculateResult::new()
+        }
+        if deadline <= 0 {
+            log::error!("deadline must be greater than 0.");
+            return AmmCalculateResult::new()
+        }
+
+        if self.reserve0 == 0.0 && a1e <= 0.0 {
+            log::error!("When pool is empty, a1e should not be 0.");
+            return AmmCalculateResult::new()
+        }
+
+        // a1e = reserve1 / reserve0 * a0e
+        let a1ew: f64 = if self.reserve0 > 0.0 { (self.reserve1 / self.reserve0) * a0e } else { a1e };
+
+        let a0m = a0e * (1.0 - slippage);
+        let a1m = a1ew * (1.0 - slippage);
+
+        let lp_amounts = self.calc_lp_amounts_for_add_liquidity(a0e, a1ew);
+
+        AmmCalculateResult {
+            ticker0: self.ticker0.clone(),
+            ticker0_decimals: self.ticker1_decimals,
+            ticker1: self.ticker1.clone(),
+            ticker1_decimals: self.ticker1_decimals,
+            supply: self.supply,
+            reserve0: self.reserve0,
+            reserve1: self.reserve1,
+            dl: deadline,
+            a0e,
+            a1e: a1ew,
+            a0m,
+            a1m,
+            aelp: lp_amounts[0],
+            ap: 0.0,
+            ticker_in: String::new(),
+            ai: 0.0,
+            aoe: 0.0,
+            aom: 0.0,
+            tbhp: 0.0,
+            ttp: 0.0,
+            tt: 0.0,
+            tbh: 0.0,
+            fee: 0.0,
+            fee_percentage: 0.0,
+            slippage,
+            pool_share: 0.0,
+            return_ticker0: String::new(),
+            return_ticker1: String::new(),
+            price_impact: 0.0,
+            success: true,
+        }
+    }
+
+    fn query_remove_liquidity_result(&self, lp_amount: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        if lp_amount <= 0.0 {
+            log::error!("ap must be greater than 0");
+            return AmmCalculateResult::new()
+        }
+        if slippage <= 0.0 || slippage >= 1.0 {
+            log::error!("slippage must be in (0, 1)");
+            return AmmCalculateResult::new()
+        }
+        if deadline <= 0 {
+            log::error!("deadline must be greater than 0");
+            return AmmCalculateResult::new()
+        }
+
+        let amounts = self.calc_token_amount_for_remove_liquidity(lp_amount);
+
+        let a0e = amounts[0];
+        let a1e = amounts[1];
+        let a0m = a0e * (1.0 - slippage);
+        let a1m = a1e * (1.0 - slippage);
+
+        AmmCalculateResult {
+            ticker0: self.ticker0.clone(),
+            ticker0_decimals: self.ticker1_decimals,
+            ticker1: self.ticker1.clone(),
+            ticker1_decimals: self.ticker1_decimals,
+            supply: self.supply,
+            reserve0: self.reserve0,
+            reserve1: self.reserve1,
+            dl: deadline,
+            a0e,
+            a1e,
+            a0m,
+            a1m,
+            aelp: 0.0,
+            ap: 0.0,
+            ticker_in: String::new(),
+            ai: 0.0,
+            aoe: 0.0,
+            aom: 0.0,
+            tbhp: 0.0,
+            ttp: 0.0,
+            tt: 0.0,
+            tbh: 0.0,
+            fee: 0.0,
+            fee_percentage: 0.0,
+            slippage,
+            pool_share: 0.0,
+            return_ticker0: String::new(),
+            return_ticker1: String::new(),
+            price_impact: 0.0,
+            success: true,
+        }
+    }
+
+    fn query_swap_result(&self, ticker_in: String, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        if ticker_in.is_empty() {
+            log::error!("ticker_in should not be null");
+            return AmmCalculateResult::new()
+        }
+        if amount_in <= 0.0 {
+            log::error!("amount_in must be greater than 0");
+            return AmmCalculateResult::new()
+        }
+        if slippage <= 0.0 || slippage >= 1.0 {
+            log::error!("slippage must be in (0, 1)");
+            return AmmCalculateResult::new()
+        }
+        if deadline <= 0 {
+            log::error!("deadline must be greater than 0");
+            return AmmCalculateResult::new()
+        }
+
+        let fees = self.calc_swap(ticker_in, amount_in);
+
+        let ai = amount_in;
+        let aoe = fees[5];
+        let aom = aoe * (1.0 - slippage);
+        let tbh = fees[1];
+        let tt = fees[2];
+
+        let mut fee = 0.0;
+        if fees[3] > 0.0 || fees[4] > 0.0 {
+            fee = fees[3] + fees[4];
+        }
+
+        let ticker_in_price_starting = fees[7] / fees[6];
+        let ticker_in_price_end = fees[9] / fees[8];
+        let price_impact = (ticker_in_price_end - ticker_in_price_starting) / ticker_in_price_starting;
+
+        AmmCalculateResult {
+            ticker0: self.ticker0.clone(),
+            ticker0_decimals: self.ticker1_decimals,
+            ticker1: self.ticker1.clone(),
+            ticker1_decimals: self.ticker1_decimals,
+            supply: self.supply,
+            reserve0: self.reserve0,
+            reserve1: self.reserve1,
+            dl: deadline,
+            a0e: 0.0,
+            a1e: 0.0,
+            a0m: 0.0,
+            a1m: 0.0,
+            aelp: 0.0,
+            ap: 0.0,
+            ticker_in: String::new(),
+            ai: 0.0,
+            aoe,
+            aom,
+            tbhp: 0.0,
+            ttp: 0.0,
+            tt,
+            tbh,
+            fee,
+            fee_percentage: 0.0,
+            slippage,
+            pool_share: 0.0,
+            return_ticker0: String::new(),
+            return_ticker1: String::new(),
+            price_impact,
+            success: price_impact < slippage,
         }
     }
 }
@@ -334,21 +565,6 @@ impl AutomatedLiquidityContract {
         ContractExecResult::Success("AMM remove liquidity execute successfully.".to_string())
     }
 
-    fn get_state(&mut self, state_name: State, address: String, ticker: String) -> f64{
-        match state_name {
-            State::Reserve0 => {
-                self.reserve0
-            },
-            State::Reserve1 => {
-                self.reserve1
-            },
-            State::Supply => {
-                self.supply
-            },
-            _ => self.wrapped_rune_contract.get_state(state_name, address, ticker),
-        }
-    }
-
     pub fn update_reserve0(&mut self, new_value: f64) {
         self.reserve0 = new_value;
     }
@@ -397,195 +613,6 @@ impl AutomatedLiquidityContract {
         }
         self.update_reserve1(self.reserve1 - value);
         self.wrapped_rune_contract.sb3_mint(address, self.ticker1.clone(), value)
-    }
-
-    pub fn calc_add_liquidity_result(&self, a0e: f64, a1e: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
-        if a0e <= 0.0 {
-            log::error!("a0e must be greater than 0.");
-            return AmmCalculateResult::new()
-        }
-        if a1e <= 0.0 {
-            log::error!("a1e must be greater than 0.");
-            return AmmCalculateResult::new()
-        }
-        if slippage <= 0.0 || slippage >= 1.0 {
-            log::error!("slippage must be in (0, 1).");
-            return AmmCalculateResult::new()
-        }
-        if deadline <= 0 {
-            log::error!("deadline must be greater than 0.");
-            return AmmCalculateResult::new()
-        }
-
-        if self.reserve0 == 0.0 && a1e <= 0.0 {
-            log::error!("When pool is empty, a1e should not be 0.");
-            return AmmCalculateResult::new()
-        }
-
-        // a1e = reserve1 / reserve0 * a0e
-        let a1ew: f64 = if self.reserve0 > 0.0 { (self.reserve1 / self.reserve0) * a0e } else { a1e };
-
-        let a0m = a0e * (1.0 - slippage);
-        let a1m = a1ew * (1.0 - slippage);
-
-        let lp_amounts = self.calc_lp_amounts_for_add_liquidity(a0e, a1ew);
-
-        AmmCalculateResult {
-            ticker0: self.ticker0.clone(),
-            ticker0_decimals: self.ticker1_decimals,
-            ticker1: self.ticker1.clone(),
-            ticker1_decimals: self.ticker1_decimals,
-            supply: self.supply,
-            reserve0: self.reserve0,
-            reserve1: self.reserve1,
-            dl: deadline,
-            a0e,
-            a1e: a1ew,
-            a0m,
-            a1m,
-            aelp: lp_amounts[0],
-            ap: 0.0,
-            ticker_in: String::new(),
-            ai: 0.0,
-            aoe: 0.0,
-            aom: 0.0,
-            tbhp: 0.0,
-            ttp: 0.0,
-            tt: 0.0,
-            tbh: 0.0,
-            fee: 0.0,
-            fee_percentage: 0.0,
-            slippage,
-            pool_share: 0.0,
-            return_ticker0: String::new(),
-            return_ticker1: String::new(),
-            price_impact: 0.0,
-            success: true,
-        }
-    }
-
-    pub fn calc_remove_liquidity_result(&self, lp_amount: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
-        if lp_amount <= 0.0 {
-            log::error!("ap must be greater than 0");
-            return AmmCalculateResult::new()
-        }
-        if slippage <= 0.0 || slippage >= 1.0 {
-            log::error!("slippage must be in (0, 1)");
-            return AmmCalculateResult::new()
-        }
-        if deadline <= 0 {
-            log::error!("deadline must be greater than 0");
-            return AmmCalculateResult::new()
-        }
-
-        let amounts = self.calc_token_amount_for_remove_liquidity(lp_amount);
-
-        let a0e = amounts[0];
-        let a1e = amounts[1];
-        let a0m = a0e * (1.0 - slippage);
-        let a1m = a1e * (1.0 - slippage);
-
-        AmmCalculateResult {
-            ticker0: self.ticker0.clone(),
-            ticker0_decimals: self.ticker1_decimals,
-            ticker1: self.ticker1.clone(),
-            ticker1_decimals: self.ticker1_decimals,
-            supply: self.supply,
-            reserve0: self.reserve0,
-            reserve1: self.reserve1,
-            dl: deadline,
-            a0e,
-            a1e,
-            a0m,
-            a1m,
-            aelp: 0.0,
-            ap: 0.0,
-            ticker_in: String::new(),
-            ai: 0.0,
-            aoe: 0.0,
-            aom: 0.0,
-            tbhp: 0.0,
-            ttp: 0.0,
-            tt: 0.0,
-            tbh: 0.0,
-            fee: 0.0,
-            fee_percentage: 0.0,
-            slippage,
-            pool_share: 0.0,
-            return_ticker0: String::new(),
-            return_ticker1: String::new(),
-            price_impact: 0.0,
-            success: true,
-        }
-    }
-
-    pub fn calc_swap_result(&self, ticker_in: String, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
-        if ticker_in.is_empty() {
-            log::error!("ticker_in should not be null");
-            return AmmCalculateResult::new()
-        }
-        if amount_in <= 0.0 {
-            log::error!("amount_in must be greater than 0");
-            return AmmCalculateResult::new()
-        }
-        if slippage <= 0.0 || slippage >= 1.0 {
-            log::error!("slippage must be in (0, 1)");
-            return AmmCalculateResult::new()
-        }
-        if deadline <= 0 {
-            log::error!("deadline must be greater than 0");
-            return AmmCalculateResult::new()
-        }
-
-        let fees = self.calc_swap(ticker_in, amount_in);
-
-        let ai = amount_in;
-        let aoe = fees[5];
-        let aom = aoe * (1.0 - slippage);
-        let tbh = fees[1];
-        let tt = fees[2];
-
-        let mut fee = 0.0;
-        if fees[3] > 0.0 || fees[4] > 0.0 {
-            fee = fees[3] + fees[4];
-        }
-
-        let ticker_in_price_starting = fees[7] / fees[6];
-        let ticker_in_price_end = fees[9] / fees[8];
-        let price_impact = (ticker_in_price_end - ticker_in_price_starting) / ticker_in_price_starting;
-
-        AmmCalculateResult {
-            ticker0: self.ticker0.clone(),
-            ticker0_decimals: self.ticker1_decimals,
-            ticker1: self.ticker1.clone(),
-            ticker1_decimals: self.ticker1_decimals,
-            supply: self.supply,
-            reserve0: self.reserve0,
-            reserve1: self.reserve1,
-            dl: deadline,
-            a0e: 0.0,
-            a1e: 0.0,
-            a0m: 0.0,
-            a1m: 0.0,
-            aelp: 0.0,
-            ap: 0.0,
-            ticker_in: String::new(),
-            ai: 0.0,
-            aoe,
-            aom,
-            tbhp: 0.0,
-            ttp: 0.0,
-            tt,
-            tbh,
-            fee,
-            fee_percentage: 0.0,
-            slippage,
-            pool_share: 0.0,
-            return_ticker0: String::new(),
-            return_ticker1: String::new(),
-            price_impact,
-            success: price_impact < slippage,
-        }
     }
 
     pub fn calc_swap(&self, ticker_in: String, amount_in: f64) -> [f64; 10] {
@@ -715,6 +742,7 @@ pub fn validation_error(message: &str) -> ContractExecResult {
     ContractExecResult::ValidationError(message.to_string())
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct AmmCalculateResult {
     pub ticker0: String,
     pub ticker0_decimals: i64,

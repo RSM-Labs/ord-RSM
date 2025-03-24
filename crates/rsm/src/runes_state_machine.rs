@@ -1,16 +1,19 @@
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use bitcoin::{Address, Transaction, Txid};
 use bitcoin::Network::Bitcoin;
+use rand::Rng;
+use serde::Serialize;
 use ordinals::{Etching, RuneId, Runestone};
 use ordinals::burn::{Burn2, Burn3};
 use ordinals::mint::{Mint2, Mint3};
-use crate::amm::AutomatedLiquidityContract;
+use crate::amm::{AmmCalculateResult, AutomatedLiquidityContract};
 use crate::context::{OperateContext};
 use crate::contract::{Contract, ContractExecResult, ContractTemplate, WrappedRuneContract};
-use crate::state::StateDB;
+use crate::state::State;
 
+#[derive(Clone)]
 pub struct RunesStateMachine {
-    pub state_db: StateDB,
     pub rsm_interpreter: RSMInterpreter,
 }
 
@@ -18,7 +21,6 @@ impl RunesStateMachine {
 
     pub fn new() -> Self {
         RunesStateMachine {
-            state_db: Default::default(),
             rsm_interpreter: RSMInterpreter::new(),
         }
     }
@@ -38,7 +40,7 @@ impl RunesStateMachine {
 
                 let contract_id = etching.rune.unwrap().to_string();
 
-                let amm_liquidity_contract = Box::new(AutomatedLiquidityContract {
+                let amm_liquidity_contract = Arc::new(RwLock::new(AutomatedLiquidityContract {
                     ticker0: etching.burn3_able_rune_ids.0.unwrap().to_string(),
                     ticker0_decimals: 0,
                     ticker1: etching.burn3_able_rune_ids.1.unwrap().to_string(),
@@ -60,7 +62,7 @@ impl RunesStateMachine {
                         sb2: Default::default(),
                         sb3: Default::default(),
                     },
-                });
+                }));
 
                 self.rsm_interpreter.contracts.insert(contract_id, amm_liquidity_contract);
             }
@@ -190,11 +192,42 @@ impl RunesStateMachine {
         let script_pub_key = &tx_out.script_pubkey;
         Address::from_script(script_pub_key, Bitcoin).ok()
     }
+
+    pub fn query_add_liquidity_result(&self, contract_id: String, a0e: f64, a1e: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        self.rsm_interpreter.query_add_liquidity_result(contract_id, a0e, a1e, slippage, deadline)
+    }
+
+    pub fn query_remove_liquidity_result(&self, contract_id: String, lp_amount: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        self.rsm_interpreter.query_remove_liquidity_result(contract_id, lp_amount, slippage, deadline)
+    }
+
+    pub fn query_swap_result(&self, contract_id: String, ticker_in: String, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        self.rsm_interpreter.query_swap_result(contract_id, ticker_in, amount_in, slippage, deadline)
+    }
+
+    pub fn get_state(&self, contract_id: String, state_name: State, address: String, ticker: String) -> f64 {
+        self.rsm_interpreter.get_state(contract_id, state_name, address, ticker)
+    }
+
+    pub fn get_contract_info(&self, contract_id: String) -> String {
+        self.rsm_interpreter.get_contract_info(contract_id)
+    }
 }
 
 pub struct RSMInterpreter {
     jump_table: JumpTable,
-    contracts: HashMap<String, Box<dyn Contract>>,
+    contracts: HashMap<String, Arc<RwLock<dyn Contract>>>,
+}
+
+impl Clone for RSMInterpreter {
+    fn clone(&self) -> Self {
+        Self {
+            jump_table: self.jump_table.clone(),
+            contracts: self.contracts
+                .iter().map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        }
+    }
 }
 
 impl RSMInterpreter {
@@ -208,7 +241,8 @@ impl RSMInterpreter {
     pub fn execute(&mut self, contract_id: String, function_name: String, operate_context: &OperateContext) -> ContractExecResult {
         if let Some(contract) = self.contracts.get_mut(&contract_id) {
             if let Some(operation) = self.jump_table.operations.get(&function_name) {
-                let _ = (operation.method)(contract.as_mut(), operate_context);
+                 let mut guard = contract.write().unwrap();
+                 let _ = (operation.method)(&mut *guard, operate_context);
             }
             ContractExecResult::Success("RSM invoke contract successfully.".to_string())
         } else {
@@ -216,17 +250,78 @@ impl RSMInterpreter {
         }
     }
 
-    pub fn register_contract_app(&mut self, contract_app_id: String, contract_app: Box<dyn Contract>) {
+    pub fn register_contract_app(&mut self, contract_app_id: String, contract_app: Arc<RwLock<dyn Contract>>) {
         self.contracts.insert(contract_app_id, contract_app);
     }
 
     pub fn register_operation(&mut self, key: String, operation: Operation) {
         self.jump_table.register_operation(key, operation);
     }
+
+    pub fn get_contract_state_snapshot(&self, contract_id: String) -> String {
+        if let Some(contract) = self.contracts.get(&contract_id) {
+            contract.read().unwrap().dump_state()
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn get_state(&self, contract_id: String, state_name: State, address: String, ticker: String) -> f64 {
+        if let Some(contract) = self.contracts.get(&contract_id) {
+            contract.read().unwrap().get_state(state_name, address, ticker)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn get_contract_info(&self, contract_id: String) -> String {
+        if let Some(contract) = self.contracts.get(&contract_id) {
+            contract.read().unwrap().get_info()
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn query_add_liquidity_result(&self, contract_id: String, a0e: f64, a1e: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        if let Some(contract) = self.contracts.get(&contract_id) {
+            contract.read().unwrap().query_add_liquidity_result(a0e, a1e, slippage, deadline)
+        } else {
+            AmmCalculateResult::new()
+        }
+    }
+
+    pub fn query_remove_liquidity_result(&self, contract_id: String, lp_amount: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        if let Some(contract) = self.contracts.get(&contract_id) {
+            contract.read().unwrap().query_remove_liquidity_result(lp_amount, slippage, deadline)
+        } else {
+            AmmCalculateResult::new()
+        }
+    }
+
+    pub fn query_swap_result(&self, contract_id: String, ticker_in: String, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        if let Some(contract) = self.contracts.get(&contract_id) {
+            contract.read().unwrap().query_swap_result(ticker_in, amount_in, slippage, deadline)
+        } else {
+            AmmCalculateResult::new()
+        }
+    }
 }
 
 pub struct JumpTable {
     pub operations: HashMap<String, Operation>,
+}
+
+impl Clone for JumpTable {
+    fn clone(&self) -> Self {
+        let new_ops = self.operations
+            .iter()
+            .filter(|(k, _)| !k.starts_with("debug_"))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        JumpTable {
+            operations: new_ops
+        }
+    }
 }
 
 impl JumpTable {
@@ -257,8 +352,8 @@ impl JumpTable {
         }
     }
 
-    pub fn get_operation(&self, key: String) -> Option<&Operation> {
-        self.operations.get(&key)
+    pub fn get_operation(&self, key: String) -> Option<Operation> {
+        self.operations.get(&key).cloned()
     }
 
     pub fn register_operation(&mut self, key: String, operation: Operation) {
@@ -266,6 +361,7 @@ impl JumpTable {
     }
 }
 
+#[derive(Clone)]
 pub struct Operation {
     pub function_name: String,
     pub method: fn(&mut dyn Contract, operate_context: &OperateContext) -> Result<(), ContractExecResult>,
@@ -286,4 +382,33 @@ impl StateTransitionName {
             _ => None,
         }
     }
+}
+
+#[derive(Serialize)]
+struct RecoveryLog {
+    runestone: Runestone,
+    transaction: Transaction,
+    block_height: u64,
+    block_time: u32,
+    tx: u32,
+    tx_id: Txid,
+}
+
+fn generate_recovery_id(block_height: u64, block_time: u32, tx: u32) -> String {
+    let mut rng = rand::rng();
+    let random_number: u64 = rng.random();
+    let recovery_id = format!("{}_{}_{}_{}", block_height, block_time, tx, random_number);
+    recovery_id
+}
+
+fn generate_recovery_log(runestone: Runestone, transaction: Transaction, block_height: u64, block_time: u32, tx: u32, tx_id: Txid) -> String {
+    let log = RecoveryLog {
+        runestone,
+        transaction,
+        block_height,
+        block_time,
+        tx,
+        tx_id,
+    };
+    serde_json::to_string(&log).unwrap()
 }

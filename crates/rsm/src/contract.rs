@@ -1,18 +1,30 @@
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use ordinals::{Rune, RuneId};
 use ordinals::dao::Dao;
 use ordinals::trading::Trading;
+use crate::amm::AmmCalculateResult;
 use crate::context::OperateContext;
 use crate::state::State;
 
-pub trait Contract: Any {
+pub trait Contract: Any + Send + Sync {
+
+    fn clone_box(&self) -> Arc<dyn Contract>;
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    fn get_info(&self) -> String;
+    fn dump_state(&self) -> String;
+    fn get_state(&self, state_name: State, address: String, ticker: String) -> f64;
 
     //for AMM
     fn add_liquidity(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult>;
     fn remove_liquidity(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult>;
     fn swap(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult>;
+    fn query_add_liquidity_result(&self, a0e: f64, a1e: f64, slippage: f64, deadline: u64) -> AmmCalculateResult;
+    fn query_remove_liquidity_result(&self, lp_amount: f64, slippage: f64, deadline: u64) -> AmmCalculateResult;
+    fn query_swap_result(&self, ticker_in: String, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult;
 
     //for Lending
     // fn borrow(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult>;
@@ -22,7 +34,7 @@ pub trait Contract: Any {
     // fn liquidate(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult>;
 }
 
-
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WrappedRuneContract {
     pub parent: RuneId,
     pub myself: RuneId,
@@ -59,7 +71,7 @@ impl Default for WrappedRuneContract {
 
 impl WrappedRuneContract {
 
-    pub fn get_state(&mut self, state_name: State, address: String, ticker: String) -> f64{
+    pub fn get_state(&self, state_name: State, address: String, ticker: String) -> f64{
         match state_name {
             State::StateBalanceForMint2 => {
                 if let Some(user_sb2) = self.sb2.get(&address) {
@@ -223,4 +235,16 @@ impl ContractTemplate {
     pub fn to_u8(self) -> u8 {
         self as u8
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RuneContractInfo {
+    pub parent: RuneId,
+    pub myself: RuneId,
+    pub rune: Rune,
+    pub contract: u8,
+    pub mint2_amount: u128,
+    pub burn3_able_rune_ids: (Option<Rune>, Option<Rune>),
+    pub trading: Option<Trading>,
+    pub dao: Option<Dao>,
 }

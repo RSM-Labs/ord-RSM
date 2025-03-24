@@ -1,3 +1,4 @@
+use parking_lot::RwLock;
 use rsm::runes_state_machine::RunesStateMachine;
 use super::*;
 
@@ -16,7 +17,7 @@ pub(super) struct RuneUpdater<'a, 'tx, 'client> {
   pub(super) sequence_number_to_rune_id: &'a mut Table<'tx, u32, RuneIdValue>,
   pub(super) statistic_to_count: &'a mut Table<'tx, u64, u64>,
   pub(super) transaction_id_to_rune: &'a mut Table<'tx, &'static TxidValue, u128>,
-  pub(super) runes_state_machine: &'a mut RunesStateMachine,
+  pub(super) runes_state_machine: &'a RwLock<RunesStateMachine>,
 }
 
 impl RuneUpdater<'_, '_, '_> {
@@ -132,7 +133,8 @@ impl RuneUpdater<'_, '_, '_> {
           (Some(&runestone.mint3s).is_some()),
         ];
         if runestone_fields.iter().any(|&x| x) {
-          self.runes_state_machine.invoke_contract_event(runestone, tx, u64::try_from(block_height)?, block_time, tx_index, txid);
+          let mut guard = self.runes_state_machine.write();
+          guard.invoke_contract_event(runestone, tx, u64::try_from(block_height)?, block_time, tx_index, txid);
         }
       }
 

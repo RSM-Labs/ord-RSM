@@ -1,3 +1,4 @@
+use parking_lot::RwLock;
 use {
   self::{
     entry::{
@@ -193,6 +194,7 @@ impl<T> BitcoinCoreRpcResultExt<T> for Result<T, bitcoincore_rpc::Error> {
 
 pub struct Index {
   pub(crate) client: Client,
+  pub runes_state_machine: Arc<RwLock<RunesStateMachine>>,
   database: Database,
   durability: redb::Durability,
   event_sender: Option<tokio::sync::mpsc::Sender<Event>>,
@@ -441,9 +443,12 @@ impl Index {
       u32::MAX
     };
 
+    let runes_state_machine = Arc::from(RwLock::new(RunesStateMachine::new()));
+
     Ok(Self {
       genesis_block_coinbase_txid: genesis_block_coinbase_transaction.compute_txid(),
       client,
+      runes_state_machine,
       database,
       durability,
       event_sender,
