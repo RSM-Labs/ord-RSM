@@ -2351,7 +2351,7 @@ impl Server {
     Query(query_add_liquidity): Query<QueryAddLiquidity>
   ) -> ServerResult<String> {
     task::block_in_place(|| {
-      let contract_id = query_add_liquidity.contract_id;
+      let contract_id = query_add_liquidity.contract_id.as_str();
       let a0e = query_add_liquidity.a0e;
       let a1e = query_add_liquidity.a1e;
       let slippage = query_add_liquidity.slippage;
@@ -2366,7 +2366,7 @@ impl Server {
     Query(query_remove_liquidity): Query<QueryRemoveLiquidity>
   ) -> ServerResult<String> {
     task::block_in_place(|| {
-      let contract_id = query_remove_liquidity.contract_id;
+      let contract_id = query_remove_liquidity.contract_id.as_str();
       let lp_amount = query_remove_liquidity.lp_amount;
       let slippage = query_remove_liquidity.slippage;
       let deadline = query_remove_liquidity.deadline;
@@ -2380,8 +2380,8 @@ impl Server {
     Query(query_swap): Query<QuerySwap>
   ) -> ServerResult<String> {
     task::block_in_place(|| {
-      let contract_id = query_swap.contract_id;
-      let ticker_in = query_swap.ticker_in;
+      let contract_id = query_swap.contract_id.as_str();
+      let ticker_in = query_swap.ticker_in.as_str();
       let amount_in = query_swap.amount_in;
       let slippage = query_swap.slippage;
       let deadline = query_swap.deadline;
@@ -2394,10 +2394,10 @@ impl Server {
     Extension(index): Extension<Arc<Index>>,
     Query(get_state): Query<GetState>
   ) -> ServerResult<String> {
-      let contract_id = get_state.contract_id;
+      let contract_id = get_state.contract_id.as_str();
       let state_name = get_state.state_name;
-      let address = get_state.address;
-      let ticker = get_state.ticker;
+      let address = get_state.address.as_str();
+      let ticker = get_state.ticker.as_str();
       let result = index.runes_state_machine.read().get_state(contract_id, state_name, address, ticker);
       Ok(result.to_string())
   }
@@ -2407,7 +2407,7 @@ impl Server {
     Query(get_contract_info): Query<GetContractInfo>
   ) -> ServerResult<String> {
     task::block_in_place(|| {
-      let contract_id = get_contract_info.contract_id;
+      let contract_id = get_contract_info.contract_id.as_str();
       let result = index.runes_state_machine.read().get_contract_info(contract_id);
       Ok(result)
     })

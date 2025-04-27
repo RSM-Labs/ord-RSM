@@ -16,7 +16,7 @@ pub trait Contract: Any + Send + Sync {
 
     fn get_info(&self) -> String;
     fn dump_state(&self) -> String;
-    fn get_state(&self, state_name: State, address: String, ticker: String) -> f64;
+    fn get_state(&self, state_name: State, address: &str, ticker: &str) -> f64;
 
     //for AMM
     fn add_liquidity(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult>;
@@ -24,7 +24,18 @@ pub trait Contract: Any + Send + Sync {
     fn swap(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult>;
     fn query_add_liquidity_result(&self, a0e: f64, a1e: f64, slippage: f64, deadline: u64) -> AmmCalculateResult;
     fn query_remove_liquidity_result(&self, lp_amount: f64, slippage: f64, deadline: u64) -> AmmCalculateResult;
-    fn query_swap_result(&self, ticker_in: String, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult;
+    fn query_swap_result(&self, ticker_in: &str, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult;
+
+    fn sb2_mint(&mut self, address: &str, ticker: &str, value: f64);
+    fn sb3_mint(&mut self, address: &str, ticker: &str, value: f64);
+    fn sba2_mint(&mut self, ticker: &str, value: f64);
+    fn sba3_mint(&mut self, ticker: &str, value: f64);
+    fn sb2_burn(&mut self, address: &str, ticker: &str, value: f64);
+    fn sb3_burn(&mut self, address: &str, ticker: &str, value: f64);
+
+    fn get_another_ticker(&self, ticker: &str) -> String;
+
+    fn get_ticker_pair(&self) -> (String, String);
 
     //for Lending
     // fn borrow(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult>;
@@ -36,7 +47,7 @@ pub trait Contract: Any + Send + Sync {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WrappedRuneContract {
-    pub parent: RuneId,
+    pub parent: Option<RuneId>,
     pub myself: RuneId,
     pub rune: Rune,
     pub contract: u8,
@@ -71,33 +82,33 @@ impl Default for WrappedRuneContract {
 
 impl WrappedRuneContract {
 
-    pub fn get_state(&self, state_name: State, address: String, ticker: String) -> f64{
+    pub fn get_state(&self, state_name: State, address: &str, ticker: &str) -> f64{
         match state_name {
             State::StateBalanceForMint2 => {
-                if let Some(user_sb2) = self.sb2.get(&address) {
-                    *user_sb2.get(&ticker).unwrap_or(&0.0)
+                if let Some(user_sb2) = self.sb2.get(address) {
+                    *user_sb2.get(ticker).unwrap_or(&0.0)
                 } else {
                     0.0
                 }
             },
             State::StateBalanceOfApplicationForMint2 => {
-                *self.sba2.get(&ticker).unwrap_or(&0.0)
+                *self.sba2.get(ticker).unwrap_or(&0.0)
             },
             State::StateBalanceForMint3 => {
-                if let Some(user_sb3) = self.sb3.get(&address) {
-                    *user_sb3.get(&ticker).unwrap_or(&0.0)
+                if let Some(user_sb3) = self.sb3.get(address) {
+                    *user_sb3.get(ticker).unwrap_or(&0.0)
                 } else {
                     0.0
                 }
             },
             State::StateBalanceOfApplicationForMint3 => {
-                *self.sba3.get(&ticker).unwrap_or(&0.0)
+                *self.sba3.get(ticker).unwrap_or(&0.0)
             },
             _ => 0.0,
         }
     }
 
-    pub fn burn_state(&mut self, state_name: State, address: String, ticker: String, value: f64) {
+    pub fn burn_state(&mut self, state_name: State, address: &str, ticker: &str, value: f64) {
         match state_name {
             State::StateBalanceForMint2 => {
                 self.sb2_burn(address, ticker, value);
@@ -109,88 +120,90 @@ impl WrappedRuneContract {
         }
     }
 
-    pub fn sb2_mint(&mut self, address: String, ticker: String, value: f64) {
+    pub fn sb2_mint(&mut self, address: &str, ticker: &str, value: f64) {
         if address.is_empty() || ticker.is_empty() || value.is_nan() || value <= 0.0 {
             return;
         }
-        let user_sb2 = self.sb2.entry(address.clone()).or_insert_with(HashMap::new);
-        let balance = user_sb2.entry(ticker).or_insert(0.0);
+        let user_sb2 = self.sb2.entry(address.to_string()).or_insert_with(HashMap::new);
+        let balance = user_sb2.entry(ticker.to_string()).or_insert(0.0);
         *balance += value;
+
+        self.sba2_mint(ticker, value);
     }
 
-    pub fn sb3_mint(&mut self, address: String, ticker: String, value: f64) {
+    pub fn sb3_mint(&mut self, address: &str, ticker: &str, value: f64) {
         if address.is_empty() || ticker.is_empty() || value.is_nan() || value <= 0.0 {
             return;
         }
-        let user_sb3 = self.sb3.entry(address.clone()).or_insert_with(HashMap::new);
-        let balance = user_sb3.entry(ticker).or_insert(0.0);
+        let user_sb3 = self.sb3.entry(address.to_string()).or_insert_with(HashMap::new);
+        let balance = user_sb3.entry(ticker.to_string()).or_insert(0.0);
         *balance += value;
+
+        self.sba3_mint(ticker, value);
     }
 
-    pub fn sba2_mint(&mut self, ticker: String, value: f64) {
+    pub fn sba2_mint(&mut self, ticker: &str, value: f64) {
         if ticker.is_empty() || value.is_nan() || value <= 0.0 {
             return;
         }
-        let sba2_value = self.sba2.entry(ticker.clone()).or_insert(0.0);
+        let sba2_value = self.sba2.entry(ticker.to_string()).or_insert(0.0);
         *sba2_value += value;
     }
 
-    pub fn sba3_mint(&mut self, ticker: String, value: f64) {
+    pub fn sba3_mint(&mut self, ticker: &str, value: f64) {
         if ticker.is_empty() || value.is_nan() || value <= 0.0 {
             return;
         }
-        let sha3_value = self.sba3.entry(ticker.clone()).or_insert(0.0);
+        let sha3_value = self.sba3.entry(ticker.to_string()).or_insert(0.0);
         *sha3_value += value;
     }
 
-    pub fn sb2_burn(&mut self, address: String, ticker: String, value: f64) {
+    pub fn sb2_burn(&mut self, address: &str, ticker: &str, value: f64) {
         if address.is_empty() || ticker.is_empty() || value.is_nan() || value <= 0.0 {
             return;
         }
-        let entry = self.sb2.entry(address.clone()).or_insert_with(HashMap::new);
-        let current_value = entry.entry(ticker.clone()).or_insert(0.0);
+        let entry = self.sb2.entry(address.to_string()).or_insert_with(HashMap::new);
+        let current_value = entry.entry(ticker.to_string()).or_insert(0.0);
         if *current_value >= value {
             *current_value -= value;
         }
+        self.sba2_burn(ticker, value);
     }
 
-    pub fn sb3_burn(&mut self, address: String, ticker: String, value: f64) {
+    pub fn sb3_burn(&mut self, address: &str, ticker: &str, value: f64) {
         if address.is_empty() || ticker.is_empty() || value.is_nan() || value <= 0.0 {
             return;
         }
-        let entry = self.sb3.entry(address.clone()).or_insert_with(HashMap::new);
-        let current_value = entry.entry(ticker.clone()).or_insert(0.0);
+        let entry = self.sb3.entry(address.to_string()).or_insert_with(HashMap::new);
+        let current_value = entry.entry(ticker.to_string()).or_insert(0.0);
+        if *current_value >= value {
+            *current_value -= value;
+        }
+        self.sba3_burn(ticker, value);
+    }
+
+    pub fn sba2_burn(&mut self, ticker: &str, value: f64) {
+        if ticker.is_empty() || value.is_nan() || value <= 0.0 {
+            return;
+        }
+        let current_value = self.sba2.entry(ticker.to_string()).or_insert(0.0);
         if *current_value >= value {
             *current_value -= value;
         }
     }
 
-    pub fn sba2_burn(&mut self, ticker: String, value: f64) {
+    pub fn sba3_burn(&mut self, ticker: &str, value: f64) {
         if ticker.is_empty() || value.is_nan() || value <= 0.0 {
             return;
         }
-        let current_value = self.sba2.entry(ticker.clone()).or_insert(0.0);
-        if *current_value >= value {
-            *current_value -= value;
-        }
-    }
-
-    pub fn sba3_burn(&mut self, ticker: String, value: f64) {
-        if ticker.is_empty() || value.is_nan() || value <= 0.0 {
-            return;
-        }
-        let current_value = self.sba3.entry(ticker.clone()).or_insert(0.0);
+        let current_value = self.sba3.entry(ticker.to_string()).or_insert(0.0);
         if *current_value >= value {
             *current_value -= value;
         }
     }
 
     pub fn get_myself_ticker(&self) -> String{
-        format!("{}", self.myself)
-    }
-
-    pub fn get_parent_ticker(&self) -> String{
-        format!("{}", self.parent)
+        self.myself.to_str()
     }
 }
 
@@ -213,6 +226,7 @@ impl ContractExecResult {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ContractTemplate {
+    Base = 0,
     Governance = 1,
     AMM = 2,
     Staking = 4,
@@ -223,6 +237,7 @@ pub enum ContractTemplate {
 impl ContractTemplate {
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
+            0 => Some(ContractTemplate::Base),
             1 => Some(ContractTemplate::Governance),
             2 => Some(ContractTemplate::AMM),
             4 => Some(ContractTemplate::Staking),
@@ -239,7 +254,7 @@ impl ContractTemplate {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RuneContractInfo {
-    pub parent: RuneId,
+    pub parent: Option<RuneId>,
     pub myself: RuneId,
     pub rune: Rune,
     pub contract: u8,
@@ -247,4 +262,88 @@ pub struct RuneContractInfo {
     pub burn3_able_rune_ids: (Option<Rune>, Option<Rune>),
     pub trading: Option<Trading>,
     pub dao: Option<Dao>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BaseContract {
+    pub wrapped_rune_contract: WrappedRuneContract,
+}
+
+impl Contract for BaseContract {
+    fn clone_box(&self) -> Arc<dyn Contract> {
+        Arc::new(self.clone())
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn get_info(&self) -> String {
+        todo!()
+    }
+
+    fn dump_state(&self) -> String {
+        let json = serde_json::to_string(self).unwrap();
+        json
+    }
+
+    fn get_state(&self, state_name: State, address: &str, ticker: &str) -> f64 {
+        self.wrapped_rune_contract.get_state(state_name, address, ticker)
+    }
+
+    fn add_liquidity(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult> {
+        todo!()
+    }
+
+    fn remove_liquidity(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult> {
+        todo!()
+    }
+
+    fn swap(&mut self, operate_context: &OperateContext) -> Result<(), ContractExecResult> {
+        todo!()
+    }
+
+    fn query_add_liquidity_result(&self, a0e: f64, a1e: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        todo!()
+    }
+
+    fn query_remove_liquidity_result(&self, lp_amount: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        todo!()
+    }
+
+    fn query_swap_result(&self, ticker_in: &str, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+        todo!()
+    }
+
+    fn sb2_mint(&mut self, address: &str, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sb2_mint(address, ticker, value)
+    }
+
+    fn sb3_mint(&mut self, address: &str, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sb3_mint(address, ticker, value)
+    }
+
+    fn sba2_mint(&mut self, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sba2_mint(ticker, value)
+    }
+
+    fn sba3_mint(&mut self, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sba3_mint(ticker, value)
+    }
+
+    fn sb2_burn(&mut self, address: &str, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sb2_burn(address, ticker, value)
+    }
+
+    fn sb3_burn(&mut self, address: &str, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sb3_burn(address, ticker, value)
+    }
+
+    fn get_another_ticker(&self, ticker: &str) -> String {
+        todo!()
+    }
+
+    fn get_ticker_pair(&self) -> (String, String) {
+        todo!()
+    }
 }

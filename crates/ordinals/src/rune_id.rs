@@ -51,6 +51,10 @@ impl RuneId {
       },
     )
   }
+
+  pub fn to_str(&self) -> String {
+    format!("{}:{}", self.block, self.tx)
+  }
 }
 
 impl Display for RuneId {

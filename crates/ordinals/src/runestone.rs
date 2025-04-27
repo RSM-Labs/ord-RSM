@@ -9,7 +9,7 @@ mod flag;
 mod message;
 mod tag;
 
-#[derive(Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct Runestone {
   pub edicts: Vec<Edict>,
   pub etching: Option<Etching>,
@@ -106,8 +106,6 @@ impl Runestone {
       burn3_able_rune_ids: (Tag::Burn3AbleRuneIdsStart.take(&mut fields, |[rune]| {Some(Rune(rune))}),
                             Tag::Burn3AbleRuneIdsEnd.take(&mut fields, |[rune]| {Some(Rune(rune))})),
       trading: Flag::Trading.take(&mut flags).then(|| Trading {
-        black_hole_percentage: Tag::BlackHolePercentage.take(&mut fields, |[black_hole_percentage]| {u32::try_from(black_hole_percentage).ok()}),
-        tax_percentage: Tag::TaxPercentage.take(&mut fields, |[tax_percentage]| {u32::try_from(tax_percentage).ok()}),
         lp_fee_percentage: Tag::LpFeePercentage.take(&mut fields, |[lp_fee_percentage]| {u32::try_from(lp_fee_percentage).ok()}),
         service_fee_percentage: Tag::ServiceFeePercentage.take(&mut fields, |[service_fee_percentage]| {u32::try_from(service_fee_percentage).ok()}),
       }),
@@ -203,8 +201,7 @@ impl Runestone {
       Burn2 {
         to: Tag::Burn2To.take(&mut fields, |[block, tx]| {
           RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
-        }
-        ).unwrap(),
+        }).unwrap(),
         state_transition_function: Tag::Burn2StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()).unwrap(),
         edicts: burn2_edicts.unwrap(),
         proof: Tag::Burn2Proof.take(&mut fields, |[block, tx, output, amount]| {
@@ -228,8 +225,7 @@ impl Runestone {
       Burn3 {
         to: Tag::Burn3To.take(&mut fields, |[block, tx]| {
           RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
-        }
-        ).unwrap(),
+        }).unwrap(),
         state_transition_function: Tag::Burn3StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()).unwrap(),
         edicts: burn3_edicts.unwrap(),
         proof: Tag::Burn3Proof.take(&mut fields, |[block, tx, output, amount]| {
@@ -359,8 +355,6 @@ impl Runestone {
       Tag::Burn3AbleRuneIdsEnd.encode_option(burn3_able_rune_id1.map(|rune| rune.0), &mut payload);
 
       if let Some(trading) = etching.trading {
-        Tag::BlackHolePercentage.encode_option(trading.black_hole_percentage, &mut payload);
-        Tag::TaxPercentage.encode_option(trading.tax_percentage, &mut payload);
         Tag::LpFeePercentage.encode_option(trading.lp_fee_percentage, &mut payload);
         Tag::ServiceFeePercentage.encode_option(trading.service_fee_percentage, &mut payload);
       }
@@ -372,8 +366,8 @@ impl Runestone {
       }
 
       if let Some(ext) = etching.ext {
-        Tag::Amount0Min.encode_option(ext.amount0_min, &mut payload);
-        Tag::Amount1Min.encode_option(ext.amount1_min, &mut payload);
+        //Tag::Amount0Min.encode_option(ext.amount0_min, &mut payload);
+        //Tag::Amount1Min.encode_option(ext.amount1_min, &mut payload);
         Tag::Deadline.encode_option(ext.deadline, &mut payload);
       }
     }

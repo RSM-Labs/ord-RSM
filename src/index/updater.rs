@@ -362,6 +362,7 @@ impl Updater<'_> {
         event_sender: self.index.event_sender.as_ref(),
         block_time: block.header.time,
         burned: HashMap::new(),
+        minted: HashMap::new(),
         client: &self.index.client,
         height: self.height,
         id_to_entry: &mut rune_id_to_rune_entry,
@@ -377,6 +378,8 @@ impl Updater<'_> {
         statistic_to_count: &mut statistic_to_count,
         transaction_id_to_rune: &mut transaction_id_to_rune,
         runes_state_machine: &self.index.runes_state_machine,
+        first_in_block: true,
+        chain: self.index.settings.chain(),
       };
 
       for (i, (tx, txid)) in block.txdata.iter().enumerate() {

@@ -46,7 +46,7 @@ impl Contract for AutomatedLiquidityContract {
         json
     }
 
-    fn get_state(&self, state_name: State, address: String, ticker: String) -> f64 {
+    fn get_state(&self, state_name: State, address: &str, ticker: &str) -> f64 {
         match state_name {
             State::Reserve0 => {
                 self.reserve0
@@ -66,7 +66,8 @@ impl Contract for AutomatedLiquidityContract {
             ContractExecResult::ValidationError("Address is missing!".to_string())
         })?;
 
-        let address_hex = address.to_string();
+        let binding = address.to_string();
+        let address_hex = binding.as_str();
         let block_timestamp = operate_context.block_timestamp;
 
         let burn3 = operate_context.burn3s.as_ref().ok_or_else(|| {
@@ -113,7 +114,8 @@ impl Contract for AutomatedLiquidityContract {
             ContractExecResult::ValidationError("Address is missing!".to_string())
         })?;
 
-        let address_hex = address.to_string();
+        let binding = address.to_string();
+        let address_hex = binding.as_str();
         let block_timestamp = operate_context.block_timestamp;
 
         let burn2 = operate_context.burn2s.as_ref().ok_or_else(|| {
@@ -156,7 +158,8 @@ impl Contract for AutomatedLiquidityContract {
             ContractExecResult::ValidationError("Address is missing!".to_string())
         })?;
 
-        let address_hex = address.to_string();
+        let binding = address.to_string();
+        let address_hex = binding.as_str();
         let block_timestamp = operate_context.block_timestamp;
 
         let burn3 = operate_context.burn3s.as_ref().ok_or_else(|| {
@@ -164,7 +167,8 @@ impl Contract for AutomatedLiquidityContract {
         })?;
 
         let edict = &burn3.edicts[0];
-        let ticker_in = format!("{}:{}", edict.id.block, edict.id.tx);
+        let binding = edict.id.to_str();
+        let ticker_in = binding.as_str();
         let amount_in = edict.amount;
 
         let ext = burn3.ext.as_ref().ok_or_else(|| {
@@ -312,7 +316,7 @@ impl Contract for AutomatedLiquidityContract {
         }
     }
 
-    fn query_swap_result(&self, ticker_in: String, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
+    fn query_swap_result(&self, ticker_in: &str, amount_in: f64, slippage: f64, deadline: u64) -> AmmCalculateResult {
         if ticker_in.is_empty() {
             log::error!("ticker_in should not be null");
             return AmmCalculateResult::new()
@@ -343,8 +347,8 @@ impl Contract for AutomatedLiquidityContract {
             fee = fees[3] + fees[4];
         }
 
-        let ticker_in_price_starting = fees[7] / fees[6];
-        let ticker_in_price_end = fees[9] / fees[8];
+        let ticker_in_price_starting = fees[5] / fees[4];
+        let ticker_in_price_end = fees[7] / fees[6];
         let price_impact = (ticker_in_price_end - ticker_in_price_starting) / ticker_in_price_starting;
 
         AmmCalculateResult {
@@ -380,6 +384,42 @@ impl Contract for AutomatedLiquidityContract {
             success: price_impact < slippage,
         }
     }
+
+    fn sb2_mint(&mut self, address: &str, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sb2_mint(address, ticker, value)
+    }
+
+    fn sb3_mint(&mut self, address: &str, ticker: &str, value: f64){
+        self.wrapped_rune_contract.sb3_mint(address, ticker, value)
+    }
+
+    fn sba2_mint(&mut self, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sba2_mint(ticker, value)
+    }
+
+    fn sba3_mint(&mut self, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sba3_mint(ticker, value)
+    }
+
+    fn sb2_burn(&mut self, address: &str, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sb2_burn(address, ticker, value)
+    }
+
+    fn sb3_burn(&mut self, address: &str, ticker: &str, value: f64) {
+        self.wrapped_rune_contract.sb3_burn(address, ticker, value)
+    }
+
+    fn get_another_ticker(&self, ticker: &str) -> String {
+        match ticker {
+            t if t == self.ticker0 => self.ticker1.clone(),
+            t if t == self.ticker1 => self.ticker0.clone(),
+            _ => "".to_string(),
+        }
+    }
+
+    fn get_ticker_pair(&self) -> (String, String) {
+        (self.ticker0.clone(), self.ticker1.clone())
+    }
 }
 
 impl AutomatedLiquidityContract {
@@ -400,7 +440,7 @@ impl AutomatedLiquidityContract {
     /**
      * AMM swap.
      */
-    pub fn do_swap(&mut self, address: String, ticker_in: String, amount_in: f64,
+    pub fn do_swap(&mut self, address: &str, ticker_in: &str, amount_in: f64,
                    amount_out_min: f64, deadline: u64, block_timestamp: u64) -> ContractExecResult {
         if address.is_empty() {
             return validation_error("address cannot be empty");
@@ -424,23 +464,16 @@ impl AutomatedLiquidityContract {
             return validation_error("reserve is empty.");
         }
 
-        let service_fee_receiver = address.to_string();
-        let tax_receiver = address.to_string();
+        let service_fee_receiver = address;
 
         let is_ticker_in0 = ticker_in == self.ticker0;
 
-        let [pay_in, tphp_fee, ttp_fee, lpfp_fee,
-        sfp_fee, amount_out, reserve_in_start, reserve_out_start, reserve_in_end, reserve_out_end,] = self.calc_swap(ticker_in.to_string(), amount_in);
+        let [pay_in, lpfp_fee, sfp_fee, amount_out,
+        reserve_in_start, reserve_out_start, reserve_in_end, reserve_out_end] = self.calc_swap(ticker_in.as_ref(), amount_in);
 
         if amount_out >= amount_out_min {
-            if tphp_fee > 0.0 {
-                self.wrapped_rune_contract.sb3_mint("mxxD8soCEyzP3ZJReqKUPsTYC7ZCfeLsvo".to_string(), ticker_in.to_string(), tphp_fee);
-            }
-            if ttp_fee > 0.0 {
-                self.wrapped_rune_contract.sb3_mint(tax_receiver.to_string(), ticker_in.to_string(), ttp_fee);
-            }
             if sfp_fee > 0.0 {
-                self.wrapped_rune_contract.sb3_mint(service_fee_receiver.to_string(), ticker_in.to_string(), sfp_fee);
+                self.wrapped_rune_contract.sb3_mint(service_fee_receiver, ticker_in, sfp_fee);
             }
 
             // Merge minting and transfer logic
@@ -470,7 +503,7 @@ impl AutomatedLiquidityContract {
     /**
     * AMM add liquidity.
     */
-    pub fn do_add_liquidity(&mut self, address: String, amount0_desired: f64, amount1_desired: f64,
+    pub fn do_add_liquidity(&mut self, address: &str, amount0_desired: f64, amount1_desired: f64,
                             amount0_min: f64, amount1_min: f64, deadline: u64, block_timestamp: u64) -> ContractExecResult {
         if address.is_empty() {
             return ContractExecResult::ValidationError("address cannot be empty".to_string());
@@ -501,23 +534,14 @@ impl AutomatedLiquidityContract {
 
         let [lp_amount_user, lp_amount_block_hole] = self.calc_lp_amounts_for_add_liquidity(amount0, amount1);
 
+        self.reserve0_mint(amount0);
         self.reserve1_mint(amount1);
 
-        let amount0_refund = amount0_desired - amount0;
-        let amount1_refund = amount1_desired - amount1;
-
-        if amount0_refund > 0.0 {
-            self.wrapped_rune_contract.sb3_mint(address.clone(), self.ticker0.clone(), amount0_refund);
-        }
-        if amount1_refund > 0.0 {
-            self.wrapped_rune_contract.sb3_mint(address.clone(), self.ticker1.clone(), amount1_refund);
-        }
-
-        self.wrapped_rune_contract.sb2_mint(address.clone(), self.wrapped_rune_contract.get_myself_ticker(), lp_amount_user);
+        self.wrapped_rune_contract.sb2_mint(address, self.wrapped_rune_contract.get_myself_ticker().as_ref(), lp_amount_user);
         self.supply += lp_amount_user;
 
         if lp_amount_block_hole > 0.0 {
-            self.wrapped_rune_contract.sb2_mint("mxxD8soCEyzP3ZJReqKUPsTYC7ZCfeLsvo".to_string(), self.wrapped_rune_contract.get_myself_ticker(), lp_amount_block_hole);
+            self.wrapped_rune_contract.sb2_mint("mxxD8soCEyzP3ZJReqKUPsTYC7ZCfeLsvo".to_string().as_ref(), self.wrapped_rune_contract.get_myself_ticker().as_ref(), lp_amount_block_hole);
             self.supply += lp_amount_block_hole;
         }
         ContractExecResult::Success("AMM add liquidity execute successfully.".to_string())
@@ -526,7 +550,7 @@ impl AutomatedLiquidityContract {
     /**
      * AMM remove liquidity.
      */
-    pub fn do_remove_liquidity(&mut self, address: String, lp_amount: f64, amount0_min: f64,
+    pub fn do_remove_liquidity(&mut self, address: &str, lp_amount: f64, amount0_min: f64,
                                amount1_min: f64, deadline: u64, block_timestamp: u64) -> ContractExecResult {
         if address.is_empty() {
             return ContractExecResult::ValidationError("address cannot be empty".to_string());
@@ -559,8 +583,10 @@ impl AutomatedLiquidityContract {
         }
 
         self.supply = self.supply - lp_amount;
-        self.reserve0_transfer(amount0, address.clone());
-        self.reserve1_transfer(amount1, address.clone());
+        self.reserve0_transfer(amount0, address);
+        self.reserve1_transfer(amount1, address);
+
+        self.sb2_burn(address, self.wrapped_rune_contract.get_myself_ticker().as_str(), lp_amount);
 
         ContractExecResult::Success("AMM remove liquidity execute successfully.".to_string())
     }
@@ -577,7 +603,7 @@ impl AutomatedLiquidityContract {
         self.update_reserve0(self.reserve0 + value);
     }
 
-    pub fn reserve0_transfer(&mut self, value: f64, address: String) {
+    pub fn reserve0_transfer(&mut self, value: f64, address: &str) {
         if value <= 0.0 || address.is_empty() {
             log::error!("Value must be greater than 0, or address must not be empty.");
             return;
@@ -587,7 +613,7 @@ impl AutomatedLiquidityContract {
             return;
         }
         self.update_reserve0(self.reserve0 - value);
-        self.wrapped_rune_contract.sb3_mint(address, self.ticker0.clone(), value)
+        //self.wrapped_rune_contract.sb3_mint(address, self.ticker0.clone(), value)
     }
 
     pub fn update_reserve1(&mut self, new_value: f64) {
@@ -602,7 +628,7 @@ impl AutomatedLiquidityContract {
         self.update_reserve1(self.reserve1 + value);
     }
 
-    pub fn reserve1_transfer(&mut self, value: f64, address: String) {
+    pub fn reserve1_transfer(&mut self, value: f64, address: &str) {
         if value <= 0.0 || address.is_empty() {
             log::error!("Value must be greater than 0, or address must not be empty.");
             return;
@@ -612,13 +638,12 @@ impl AutomatedLiquidityContract {
             return;
         }
         self.update_reserve1(self.reserve1 - value);
-        self.wrapped_rune_contract.sb3_mint(address, self.ticker1.clone(), value)
     }
 
-    pub fn calc_swap(&self, ticker_in: String, amount_in: f64) -> [f64; 10] {
+    pub fn calc_swap(&self, ticker_in: &str, amount_in: f64) -> [f64; 8] {
         if ticker_in.is_empty() || amount_in <= 0.0 {
             log::error!("ticker_in should not be null or amount_in must be greater than 0");
-            return [0.0; 10]
+            return [0.0; 8]
         }
 
         let is_ticker_in0 = ticker_in == self.ticker0;
@@ -630,17 +655,13 @@ impl AutomatedLiquidityContract {
         };
 
         let trading = self.wrapped_rune_contract.trading.as_ref().unwrap();
-        let black_hole_percentage = trading.black_hole_percentage.unwrap_or(0);
-        let tax_percentage = trading.tax_percentage.unwrap_or(0);
         let lp_fee_percentage = trading.lp_fee_percentage.unwrap_or(0);
         let service_fee_percentage = trading.service_fee_percentage.unwrap_or(0);
 
-        let tphp_fee = self.calculate_fee(amount_in, black_hole_percentage);
-        let ttp_fee = self.calculate_fee(amount_in, tax_percentage);
         let lpfp_fee = self.calculate_fee(amount_in, lp_fee_percentage);
         let sfp_fee = self.calculate_fee(amount_in, service_fee_percentage);
 
-        let pay_in = amount_in - tphp_fee - ttp_fee - lpfp_fee - sfp_fee;
+        let pay_in = amount_in - lpfp_fee - sfp_fee;
 
         let temp1 = reserve_in * reserve_out;
         let temp2 = reserve_in + pay_in;
@@ -650,15 +671,13 @@ impl AutomatedLiquidityContract {
 
         // Update reserve.
         let (reserve_in_end, reserve_out_end) = if is_ticker_in0 {
-            (pay_in + lpfp_fee + self.reserve0, self.reserve1 - amount_out)
+            (pay_in + self.reserve0, self.reserve1 - amount_out)
         } else {
-            (pay_in + lpfp_fee + self.reserve1, self.reserve0 - amount_out)
+            (pay_in + self.reserve1, self.reserve0 - amount_out)
         };
 
         [
             pay_in,
-            tphp_fee,
-            ttp_fee,
             lpfp_fee,
             sfp_fee,
             amount_out,
