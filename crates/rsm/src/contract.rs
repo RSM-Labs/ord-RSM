@@ -1,9 +1,9 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
+use phf::phf_map;
 use serde::{Deserialize, Serialize};
 use ordinals::{Rune, RuneId};
-use ordinals::dao::Dao;
 use ordinals::trading::Trading;
 use crate::amm::AmmCalculateResult;
 use crate::context::OperateContext;
@@ -54,7 +54,6 @@ pub struct WrappedRuneContract {
     pub mint2_amount: u128,
     pub burn3_able_rune_ids: (Option<Rune>, Option<Rune>),
     pub trading: Option<Trading>,
-    pub dao: Option<Dao>,
     pub sba2: HashMap<String, f64>,
     pub sba3: HashMap<String, f64>,
     pub sb2: HashMap<String, HashMap<String, f64>>,
@@ -71,7 +70,6 @@ impl Default for WrappedRuneContract {
             mint2_amount: 0,
             burn3_able_rune_ids: (None, None),
             trading: None,
-            dao: None,
             sba2: Default::default(),
             sba3: Default::default(),
             sb2: Default::default(),
@@ -261,7 +259,6 @@ pub struct RuneContractInfo {
     pub mint2_amount: u128,
     pub burn3_able_rune_ids: (Option<Rune>, Option<Rune>),
     pub trading: Option<Trading>,
-    pub dao: Option<Dao>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -347,3 +344,58 @@ impl Contract for BaseContract {
         todo!()
     }
 }
+
+pub struct ContractValidator;
+
+impl ContractValidator {
+
+    pub fn can_init(block: u64, chain: &str, contract: ContractTemplate) -> Result<bool, String> {
+        let key = format!("{}/{}", chain, contract.to_u8());
+        CONTRACT_ACTIVATION.get(key.as_str()).map(|&required_block|{
+            if block >= required_block {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }).unwrap_or_else(||{
+            Err(format!("Configuration not found for {}/{}", chain, contract.to_u8()))
+        })
+    }
+}
+
+static CONTRACT_ACTIVATION: phf::Map<&str, u64> = phf_map! {
+    "mainnet:0" => 0,
+    "mainnet:1" => 1000,
+    "mainnet:2" => 0,
+    "mainnet:4" => 0,
+    "mainnet:6" => 0,
+    "mainnet:7" => 0,
+
+    "regtest:0" => 0,
+    "regtest:1" => 1000,
+    "regtest:2" => 0,
+    "regtest:4" => 0,
+    "regtest:6" => 0,
+    "regtest:7" => 0,
+
+    "signet:0" => 0,
+    "signet:1" => 1000,
+    "signet:2" => 0,
+    "signet:4" => 0,
+    "signet:6" => 0,
+    "signet:7" => 0,
+
+    "testnet:0" => 0,
+    "testnet:1" => 1000,
+    "testnet:2" => 0,
+    "testnet:4" => 0,
+    "testnet:6" => 0,
+    "testnet:7" => 0,
+
+    "testnet4:0" => 0,
+    "testnet4:1" => 1000,
+    "testnet4:2" => 0,
+    "testnet4:4" => 0,
+    "testnet4:6" => 0,
+    "testnet4:7" => 0,
+};

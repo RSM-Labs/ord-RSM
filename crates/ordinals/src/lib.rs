@@ -61,3 +61,4 @@ pub mod mint;
 pub mod dao;
 pub mod burn;
 pub mod ext;
+pub mod opi_log;

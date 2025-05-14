@@ -4,12 +4,12 @@ use bitcoin::{Address, OutPoint, Transaction, Txid};
 use bitcoin::Network::Bitcoin;
 use rand::Rng;
 use serde::Serialize;
-use ordinals::{Edict, Etching, RuneId, Runestone};
+use ordinals::{opi_log, Edict, Etching, RuneId, Runestone};
 use ordinals::burn::{Burn2, Burn3};
 use ordinals::mint::{Mint2, Mint3};
 use crate::amm::{AmmCalculateResult, AutomatedLiquidityContract};
 use crate::context::{OperateContext};
-use crate::contract::{BaseContract, Contract, ContractExecResult, ContractTemplate, WrappedRuneContract};
+use crate::contract::{BaseContract, Contract, ContractExecResult, ContractTemplate, ContractValidator, WrappedRuneContract};
 use crate::state::State;
 use std::default::Default;
 
@@ -26,12 +26,18 @@ impl RunesStateMachine {
         }
     }
 
-    pub fn init_contract(&mut self, block: u64, tx: u32, etching: &Etching){
+    pub fn init_contract(&mut self, block: u64, tx: u32, etching: &Etching, chain: &str){
         match ContractTemplate::from_u8(etching.contract.unwrap_or_default()) {
             Some(ContractTemplate::Governance) => {
+                if ContractValidator::can_init(block, chain, ContractTemplate::Governance).is_ok() {
+                    return println!("cannot init Governance contract at block {}", block)
+                }
                 println!("Unsupported contract!");
             }
             Some(ContractTemplate::AMM) => {
+                if ContractValidator::can_init(block, chain, ContractTemplate::AMM).is_ok() {
+                    return println!("cannot init AMM contract at block {}", block)
+                }
                 if let (Some(block), Some(tx)) = etching.parent {
                     let key = format!("{}:{}", block, tx);
                     if !self.rsm_interpreter.contracts.contains_key(&key) {
@@ -62,7 +68,6 @@ impl RunesStateMachine {
                         mint2_amount: 0,
                         burn3_able_rune_ids: etching.burn3_able_rune_ids,
                         trading: etching.trading,
-                        dao: etching.dao,
                         sba2: Default::default(),
                         sba3: Default::default(),
                         sb2: Default::default(),
@@ -73,12 +78,21 @@ impl RunesStateMachine {
                 self.rsm_interpreter.contracts.insert(contract_id, amm_liquidity_contract);
             }
             Some(ContractTemplate::Staking) => {
+                if ContractValidator::can_init(block, chain, ContractTemplate::Staking).is_ok() {
+                    return println!("cannot init Staking contract at block {}", block)
+                }
                 println!("Unsupported contract!");
             }
             Some(ContractTemplate::Stablecoin) => {
+                if ContractValidator::can_init(block, chain, ContractTemplate::Stablecoin).is_ok() {
+                    return println!("cannot init Stablecoin contract at block {}", block)
+                }
                 println!("Unsupported contract!");
             }
             Some(ContractTemplate::Lending) => {
+                if ContractValidator::can_init(block, chain, ContractTemplate::Lending).is_ok() {
+                    return println!("cannot init Lending contract at block {}", block)
+                }
                 println!("Unsupported contract!");
             }
             _ => {
@@ -100,12 +114,11 @@ impl RunesStateMachine {
                     wrapped_rune_contract: WrappedRuneContract {
                         parent,
                         myself: RuneId{ block, tx },
-                        rune: etching.rune.unwrap(),
+                        rune: etching.rune.unwrap_or_default(),
                         contract: ContractTemplate::Base.to_u8(),
                         mint2_amount: 0,
                         burn3_able_rune_ids: (None, None),
                         trading: None,
-                        dao: None,
                         sba2: Default::default(),
                         sba3: Default::default(),
                         sb2: Default::default(),
@@ -118,26 +131,20 @@ impl RunesStateMachine {
         }
     }
 
-    pub fn invoke_contract_event(&mut self, runestone: &Runestone, transaction: &Transaction, block_height: u64, block_time: u32, tx: u32, tx_id: Txid) -> InvokeResult {
-        let create_result = |operate_event: &str, stf: &str, amount: u128, script_pub_key: &str, to_contract_id: &str| {
-            InvokeResult {
-                height: block_height,
-                operate_event: operate_event.to_string(),
-                tx_id,
-                stf: stf.to_string(),
-                outpoint: Default::default(),
-                to_contract_id: to_contract_id.to_string(),
-                id: RuneId { block: block_height, tx },
-                amount,
-                script_pub_key_hex: script_pub_key.to_string(),
-            }
+    pub fn invoke_contract_event(&mut self, runestone: &Runestone, transaction: &Transaction, block_height: u64, block_time: u32, tx: u32, tx_id: Txid, chain: &str) {
+        // cmd;<height>;tx_events_mint2;<txid>;<stf>;<outpoint>;<fromRuneId>;<id>;<amount>;<scriptpubkey>
+        // cmd;<height>;tx_events_mint3;<txid>;<stf>;<outpoint>;<fromRuneId>;<id>;<amount>;<scriptpubkey>
+        // cmd;<height>;tx_events_burn2;<txid>;<stf>;<outpoint>;<toRuneId>;<id>;<amount>;<scriptpubkey>
+        // cmd;<height>;tx_events_burn3;<txid>;<stf>;<outpoint>;<toRuneId>;<id>;<amount>;<scriptpubkey>
+        let log_result = |chain: &str, operate_event: &str, stf: &str, out_point: u32, amount: u128, script_pub_key: &str, to_contract_id: &str| {
+            opi_log::log_to_file(chain, format!("cmd;{0};{1};{2};{3};{4};{5};{6};{7}", block_height, operate_event, tx, stf, out_point, format!("{}:{}", block_height, tx), amount, script_pub_key),
+                                 false, block_height as u32, &mut false);
         };
 
         //Etching
         if let Some(etching) = &runestone.etching {
-            self.init_contract(block_height, tx, etching);
-            return create_result("tx_events_init_contract", "init_contract",
-                                 0, "", format!("{}:{}", block_height, tx).as_str());
+            self.init_contract(block_height, tx, etching, chain);
+            log_result(chain, "tx_events_init_contract", "init_contract", 0, 0, "", format!("{}:{}", block_height, tx).as_str());
         }
 
         //Burn2
@@ -147,7 +154,7 @@ impl RunesStateMachine {
                 block_timestamp: block_time.into(),
                 tx,
                 tx_id,
-                rune_id: Default::default(),
+                rune_id: burn2.to,
                 transaction: transaction.clone(),
                 mint2s: None,
                 mint3s: None,
@@ -162,21 +169,11 @@ impl RunesStateMachine {
             if StateTransitionName::from(burn2.state_transition_function) == StateTransitionName::Rl && !burn2.edicts.is_empty() {
                 for edict in &burn2.edicts {
                     if let Some(addr) = Self::extract_edict_address(edict, transaction) {
-                        self.rsm_interpreter.execute_burn2_remove_liquidity_edict(burn2.to.to_str().as_str(), addr, edict);
+                        self.rsm_interpreter.execute_burn2_remove_liquidity_edict(burn2.to.to_str().as_str(), addr.clone(), edict);
+                        log_result(chain, "tx_events_burn2", stf_name.as_ref().unwrap().as_str(), edict.output,  edict.amount, addr.clone().to_string().as_str(), burn2.to.to_str().as_str());
                     }
                 }
             }
-
-            let (amount, script) = burn2.edicts.first()
-                .map(|e|(
-                    e.amount,
-                    hex::encode(transaction.output.get(e.output as usize)
-                        .map(|o| o.script_pubkey.clone().into_bytes())
-                        .unwrap_or_default())))
-                        .unwrap_or((0, String::new()));
-
-            return create_result("tx_events_burn2", stf_name.clone().unwrap().as_str(),
-                                 amount, &script, burn2.to.to_str().as_str());
         }
 
         //Burn3
@@ -186,7 +183,7 @@ impl RunesStateMachine {
                 block_timestamp: block_time.into(),
                 tx,
                 tx_id,
-                rune_id: Default::default(),
+                rune_id: burn3.to,
                 transaction: transaction.clone(),
                 mint2s: None,
                 mint3s: None,
@@ -203,8 +200,16 @@ impl RunesStateMachine {
                     for edict in &burn3.edicts {
                         if let Some(addr) = Self::extract_edict_address(edict, transaction) {
                             match StateTransitionName::from(burn3.state_transition_function) {
-                                StateTransitionName::Al => self.rsm_interpreter.execute_burn3_add_liquidity_edict(burn3.to.to_str().as_str(), addr, edict),
-                                StateTransitionName::Sw => self.rsm_interpreter.execute_burn3_swap_edict(burn3.to.to_str().as_str(), addr, edict),
+                                StateTransitionName::Al =>
+                                    {
+                                        self.rsm_interpreter.execute_burn3_add_liquidity_edict(burn3.to.to_str().as_str(), addr.clone(), edict);
+                                        log_result(chain, "tx_events_burn3", stf_name.as_ref().unwrap().as_str(), edict.output,  edict.amount, addr.clone().to_string().as_str(), burn3.to.to_str().as_str());
+                                    },
+                                StateTransitionName::Sw =>
+                                    {
+                                        self.rsm_interpreter.execute_burn3_swap_edict(burn3.to.to_str().as_str(), addr.clone(), edict);
+                                        log_result(chain, "tx_events_burn3", stf_name.as_ref().unwrap().as_str(), edict.output,  edict.amount, addr.clone().to_string().as_str(), burn3.to.to_str().as_str());
+                                    },
                                 _ => (),
                             }
                         }
@@ -212,17 +217,6 @@ impl RunesStateMachine {
                 }
                 _ => (),
             }
-
-            let (amount, script) = burn3.edicts.first()
-                .map(|e|(
-                    e.amount,
-                    hex::encode(transaction.output.get(e.output as usize)
-                        .map(|o| o.script_pubkey.clone().into_bytes())
-                        .unwrap_or_default())))
-                .unwrap_or((0, String::new()));
-
-            return create_result("tx_events_burn3", stf_name.clone().unwrap().as_str(),
-                                 amount, &script, burn3.to.to_str().as_str());
         }
 
         //Mint2
@@ -233,7 +227,7 @@ impl RunesStateMachine {
                     block_timestamp: block_time.into(),
                     tx,
                     tx_id,
-                    rune_id: Default::default(),
+                    rune_id: mint2.from,
                     transaction: transaction.clone(),
                     mint2s: Some(mint2s.clone()),
                     mint3s: None,
@@ -244,22 +238,20 @@ impl RunesStateMachine {
 
                 if let Some(stf) = mint2.state_transition_function {
                     let stf_name = StateTransitionName::from_u32(stf);
-                    self.rsm_interpreter.execute(format!("{}:{}", block_height, tx), stf_name.unwrap(), &operate_context);
+                    self.rsm_interpreter.execute(mint2.from.to_str(), stf_name.clone().unwrap(), &operate_context);
+
 
                     if StateTransitionName::from(stf) == StateTransitionName::W2 {
                         if let Some(edicts) = &mint2.edicts {
                             for edict in edicts {
                                 if let Some(addr) = Self::extract_edict_address(edict, transaction) {
-                                    self.rsm_interpreter.execute_mint2_w2_edict(addr, edict);
+                                    self.rsm_interpreter.execute_mint2_w2_edict(addr.clone(), edict);
+                                    log_result(chain, "tx_events_mint2", stf_name.as_ref().unwrap().as_str(), edict.output,  edict.amount, addr.clone().to_string().as_str(), mint2.from.to_str().as_str());
                                 }
                             }
                         }
                     }
                 }
-
-                let amount = mint2.edicts.as_ref().and_then(|e| e.first()).map(|e| e.amount).unwrap_or(0);
-                return create_result("tx_events_mint2", &mint2.state_transition_function.unwrap_or(0).to_string(),
-                                     amount, "", format!("{}:{}", block_height, tx).as_str());
             }
         }
 
@@ -271,7 +263,7 @@ impl RunesStateMachine {
                     block_timestamp: u64::from(block_time),
                     tx,
                     tx_id,
-                    rune_id: Default::default(),
+                    rune_id: mint3.from,
                     transaction: transaction.clone(),
                     mint2s: None,
                     mint3s: Option::from(mint3s.clone()),
@@ -282,26 +274,21 @@ impl RunesStateMachine {
 
                 if let Some(stf) = mint3.state_transition_function {
                     let stf_name = StateTransitionName::from_u32(stf);
-                    self.rsm_interpreter.execute(format!("{}:{}", block_height, tx), stf_name.unwrap(), &operate_context);
+                    self.rsm_interpreter.execute(mint3.from.to_str(), stf_name.clone().unwrap(), &operate_context);
 
                     if StateTransitionName::from(stf) == StateTransitionName::W3 {
                         if let Some(edicts) = &mint3.edicts {
                             for edict in edicts {
                                 if let Some(addr) = Self::extract_edict_address(edict, transaction) {
-                                    self.rsm_interpreter.execute_mint3_w3_edict(addr, edict);
+                                    self.rsm_interpreter.execute_mint3_w3_edict(addr.clone(), edict);
+                                    log_result(chain, "tx_events_mint3", stf_name.as_ref().unwrap().as_str(), edict.output,  edict.amount, addr.clone().to_string().as_str(), mint3.from.to_str().as_str());
                                 }
                             }
                         }
                     }
                 }
-
-                let amount = mint3.edicts.as_ref().and_then(|e| e.first()).map(|e| e.amount).unwrap_or(0);
-                return create_result("tx_events_mint3", &mint3.state_transition_function.unwrap_or(0).to_string(),
-                                     amount, "", format!("{}:{}", block_height, tx).as_str());
             }
         }
-
-        create_result("default_event", "unknown", 0, "", String::new().as_str())
     }
 
     fn extract_mint2_address(mint2: &Mint2, transaction: &Transaction) -> Option<Address> {

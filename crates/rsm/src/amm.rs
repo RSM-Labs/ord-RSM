@@ -36,7 +36,6 @@ impl Contract for AutomatedLiquidityContract {
             mint2_amount: self.wrapped_rune_contract.mint2_amount,
             burn3_able_rune_ids: self.wrapped_rune_contract.burn3_able_rune_ids,
             trading: self.wrapped_rune_contract.trading,
-            dao: self.wrapped_rune_contract.dao,
         };
         serde_json::to_string(&contract_info).unwrap()
     }
@@ -750,7 +749,7 @@ impl AutomatedLiquidityContract {
 
     fn calculate_fee(&self, amount_in: f64, percentage: u32) -> f64 {
         if percentage > 0 {
-            amount_in * (percentage as f64)
+            amount_in * (percentage as f64 / 100.0)
         } else {
             0.0
         }

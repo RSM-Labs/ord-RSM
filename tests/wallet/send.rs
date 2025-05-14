@@ -1282,6 +1282,9 @@ fn sending_rune_creates_transaction_with_expected_runestone() {
     Runestone::decipher(&tx).unwrap(),
     Artifact::Runestone(Runestone {
       pointer: None,
+      mint2s: None,
+      mint3s: None,
+      burn2s: None,
       etching: None,
       edicts: vec![Edict {
         id: etch.id,
@@ -1289,7 +1292,7 @@ fn sending_rune_creates_transaction_with_expected_runestone() {
         output: 2
       }],
       mint: None,
-    }),
+    burn3s: None,}),
   );
 }
 

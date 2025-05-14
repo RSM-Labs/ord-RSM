@@ -1,5 +1,3 @@
-use crate::dao::Dao;
-use crate::ext::Ext;
 use crate::trading::Trading;
 use super::*;
 
@@ -17,8 +15,6 @@ pub struct Etching {
   pub mint2_amount: Option<u128>,
   pub burn3_able_rune_ids: (Option<Rune>, Option<Rune>),
   pub trading: Option<Trading>,
-  pub dao: Option<Dao>,
-  pub ext: Option<Ext>,
 }
 
 impl Etching {

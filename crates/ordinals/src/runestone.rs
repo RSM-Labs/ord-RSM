@@ -1,6 +1,5 @@
 use {super::*, flag::Flag, message::Message, tag::Tag};
 use crate::burn::{Burn2, Burn3, Proof};
-use crate::dao::Dao;
 use crate::ext::Ext;
 use crate::mint::{Mint2, Mint3};
 use crate::trading::Trading;
@@ -109,17 +108,6 @@ impl Runestone {
         lp_fee_percentage: Tag::LpFeePercentage.take(&mut fields, |[lp_fee_percentage]| {u32::try_from(lp_fee_percentage).ok()}),
         service_fee_percentage: Tag::ServiceFeePercentage.take(&mut fields, |[service_fee_percentage]| {u32::try_from(service_fee_percentage).ok()}),
       }),
-      dao: Flag::Dao.take(&mut flags).then(|| Dao {
-        started: Tag::Started.take(&mut fields, |[started]| {Some(started != 0)}),
-        vote_limit: Tag::VoteLimit.take(&mut fields, |[vote_limit]| {u32::try_from(vote_limit).ok()}),
-        time_lock: Tag::TimeLock.take(&mut fields, |[time_lock]| {u32::try_from(time_lock).ok()}),
-      }),
-      ext: Flag::EtchingExt.take(&mut flags).then(|| Ext {
-        amount0_min: Tag::Amount0Min.take(&mut fields, |[amount0_min]| {u32::try_from(amount0_min).ok()}),
-        amount1_min: Tag::Amount1Min.take(&mut fields, |[amount1_min]| {u32::try_from(amount1_min).ok()}),
-        amount_out_min: Tag::AmountOutMin.take(&mut fields, |[amount_out_min]| {u32::try_from(amount_out_min).ok()}),
-        deadline: Tag::Deadline.take(&mut fields, |[deadline]| {u32::try_from(deadline).ok()}),
-      }),
     });
 
     let mint = Tag::Mint.take(&mut fields, |[block, tx]| {
@@ -135,6 +123,9 @@ impl Runestone {
       let mut mint2s = Vec::new();
       if mint20_edicts.is_some() {
         mint2s.push(Mint2 {
+          from: Tag::Mint20From.take(&mut fields, |[block, tx]| {
+            RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
+          }).unwrap(),
           state_transition_function: Tag::Mint20StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()),
           edicts: mint20_edicts,
           proof: Tag::Mint20Proof.take(&mut fields, |[block, tx, output, amount]| {
@@ -149,6 +140,9 @@ impl Runestone {
       }
       if mint21_edicts.is_some() {
         mint2s.push(Mint2 {
+          from: Tag::Mint21From.take(&mut fields, |[block, tx]| {
+            RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
+          }).unwrap(),
           state_transition_function: Tag::Mint21StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()),
           edicts: mint21_edicts,
           proof: Tag::Mint21Proof.take(&mut fields, |[block, tx, output, amount]| {
@@ -168,6 +162,9 @@ impl Runestone {
       let mut mint3s = Vec::new();
       if mint30_edicts.is_some() {
         mint3s.push(Mint3 {
+          from: Tag::Mint30From.take(&mut fields, |[block, tx]| {
+            RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
+          }).unwrap(),
           state_transition_function: Tag::Mint30StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()),
           edicts: mint30_edicts,
           proof: Tag::Mint30Proof.take(&mut fields, |[block, tx, output, amount]| {
@@ -182,6 +179,9 @@ impl Runestone {
       }
       if mint31_edicts.is_some() {
         mint3s.push(Mint3 {
+          from: Tag::Mint31From.take(&mut fields, |[block, tx]| {
+            RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
+          }).unwrap(),
           state_transition_function: Tag::Mint31StateTransitionFunction.take(&mut fields, |[state_transition_function]|u32::try_from(state_transition_function).ok()),
           edicts: mint31_edicts,
           proof: Tag::Mint31Proof.take(&mut fields, |[block, tx, output, amount]| {
@@ -318,14 +318,6 @@ impl Runestone {
         Flag::Trading.set(&mut flags);
       }
 
-      if etching.dao.is_some() {
-        Flag::Dao.set(&mut flags);
-      }
-
-      if etching.ext.is_some() {
-        Flag::EtchingExt.set(&mut flags);
-      }
-
       Tag::Flags.encode([flags], &mut payload);
 
       Tag::Rune.encode_option(etching.rune.map(|rune| rune.0), &mut payload);
@@ -358,18 +350,6 @@ impl Runestone {
         Tag::LpFeePercentage.encode_option(trading.lp_fee_percentage, &mut payload);
         Tag::ServiceFeePercentage.encode_option(trading.service_fee_percentage, &mut payload);
       }
-
-      if let Some(dao) = etching.dao {
-        Tag::Started.encode_option(dao.started, &mut payload);
-        Tag::VoteLimit.encode_option(dao.vote_limit, &mut payload);
-        Tag::TimeLock.encode_option(dao.time_lock, &mut payload);
-      }
-
-      if let Some(ext) = etching.ext {
-        //Tag::Amount0Min.encode_option(ext.amount0_min, &mut payload);
-        //Tag::Amount1Min.encode_option(ext.amount1_min, &mut payload);
-        Tag::Deadline.encode_option(ext.deadline, &mut payload);
-      }
     }
 
     if let Some(RuneId { block, tx }) = self.mint {
@@ -395,12 +375,14 @@ impl Runestone {
 
     if let Some(mint3s) = &self.mint3s {
       if let Some(mint30) = mint3s.get(0) {
+        Tag::Mint30From.encode([mint30.from.block.into(), mint30.from.tx.into()], &mut payload);
         Tag::Mint30StateTransitionFunction.encode_option(mint30.state_transition_function, &mut payload);
         if let Some(proof) = &mint30.proof {
           Tag::Mint30Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
         }
       }
       if let Some(mint31) = mint3s.get(1) {
+        Tag::Mint31From.encode([mint31.from.block.into(), mint31.from.tx.into()], &mut payload);
         Tag::Mint31StateTransitionFunction.encode_option(mint31.state_transition_function, &mut payload);
         if let Some(proof) = &mint31.proof {
           Tag::Mint31Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
@@ -409,6 +391,7 @@ impl Runestone {
     }
 
     if let Some(burn2) = &self.burn2s {
+      Tag::Burn2To.encode([burn2.to.block.into(), burn2.to.tx.into()], &mut payload);
       Tag::Burn2StateTransitionFunction.encode_option(Some(burn2.state_transition_function), &mut payload);
       if let Some(proof) = &burn2.proof {
         Tag::Burn2Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
@@ -416,6 +399,7 @@ impl Runestone {
     }
 
     if let Some(burn3) = &self.burn3s {
+      Tag::Burn3To.encode([burn3.to.block.into(), burn3.to.tx.into()], &mut payload);
       Tag::Burn3StateTransitionFunction.encode_option(Some(burn3.state_transition_function), &mut payload);
       if let Some(proof) = &burn3.proof {
         Tag::Burn3Proof.encode([proof.block.into(), proof.tx.into(), proof.output.into(), proof.amount.into()], &mut payload);
@@ -1506,8 +1490,6 @@ mod tests {
           mint2_amount: None,
           burn3_able_rune_ids: (None, None),
           trading: None,
-          dao: None,
-          ext: None,
         }),
         pointer: Some(0),
         mint2s: None,
@@ -1828,13 +1810,11 @@ mod tests {
         mint2_amount: None,
         burn3_able_rune_ids: (None, None),
         trading: None,
-        dao: None,
         premine: Some(u64::MAX.into()),
         rune: Some(Rune(u128::MAX)),
         symbol: Some('\u{10FFFF}'),
         spacers: Some(Etching::MAX_SPACERS),
         parent: (None, None),
-        ext: None,
       }),
       89,
     );
@@ -2108,8 +2088,6 @@ mod tests {
           mint2_amount: None,
           burn3_able_rune_ids: (None, None),
           trading: None,
-          dao: None,
-          ext: None,
         }),
         mint: Some(RuneId::new(17, 18).unwrap()),
         pointer: Some(0),
@@ -2176,8 +2154,6 @@ mod tests {
           mint2_amount: None,
           burn3_able_rune_ids: (None, None),
           trading: None,
-          dao: None,
-          ext: None,
         }),
         ..default()
       },
@@ -2199,8 +2175,6 @@ mod tests {
           mint2_amount: None,
           burn3_able_rune_ids: (None, None),
           trading: None,
-          dao: None,
-          ext: None,
         }),
         ..default()
       },

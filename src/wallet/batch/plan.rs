@@ -478,8 +478,6 @@ impl Plan {
           mint2_amount: None,
           burn3_able_rune_ids: (None, None),
           trading: None,
-          dao: None,
-          ext: None,
         }),
         mint: None,
         pointer: (premine > 0).then_some((reveal_outputs.len() - 1).try_into().unwrap()),

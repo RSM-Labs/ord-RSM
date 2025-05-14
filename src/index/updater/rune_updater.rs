@@ -1,5 +1,6 @@
 use parking_lot::RwLock;
 use rsm::runes_state_machine::RunesStateMachine;
+use ordinals::opi_log::log_to_file;
 use super::*;
 
 pub(super) struct RuneUpdater<'a, 'tx, 'client> {
@@ -25,38 +26,15 @@ pub(super) struct RuneUpdater<'a, 'tx, 'client> {
 
 impl RuneUpdater<'_, '_, '_> {
 
-  fn write_to_file(
+  fn write_to_file<F>(
     &mut self,
     to_write: String,
     flush: bool,
-  ) -> Result {
-    lazy_static! {
-      static ref RUNES_OUTPUT: Mutex<Option<File>> = Mutex::new(None);
-    }
-    let mut runes_output = RUNES_OUTPUT.lock().unwrap();
-    if runes_output.as_ref().is_none() {
-      let chain_folder: String = match self.chain {
-        Chain::Mainnet => String::from(""),
-        Chain::Testnet => String::from("/testnet3/"),
-        Chain::Signet => String::from("/signet/"),
-        Chain::Regtest => String::from("/regtest/"),
-        Chain::Testnet4 => String::from("/testnet4/"),
-      };
-      *runes_output = Some(File::options().append(true).open(format!("{chain_folder}runes_output.txt")).unwrap());
-    }
-    if to_write != "" {
-      if self.first_in_block {
-        println!("cmd;{0};block_start", self.height,);
-        writeln!(runes_output.as_ref().unwrap(), "cmd;{0};block_start", self.height,)?;
-      }
-      self.first_in_block = false;
-
-      writeln!(runes_output.as_ref().unwrap(), "{}", to_write)?;
-    }
-    if flush {
-      (runes_output.as_ref().unwrap()).flush()?;
-    }
-
+    log_fn: F,
+  ) -> Result
+  where F: Fn(&str, String, bool, u32, &mut bool)
+  {
+    log_fn(self.chain.to_string().as_str(), to_write, flush, self.height, &mut self.first_in_block);
     Ok(())
   }
 
@@ -176,29 +154,10 @@ impl RuneUpdater<'_, '_, '_> {
           runestone.mint2s.is_some(),
           runestone.mint3s.is_some(),
         ];
+
         if runestone_fields.iter().any(|&x| x) {
           let mut guard = self.runes_state_machine.write();
-
-          let invoke_result = guard.invoke_contract_event(runestone, tx, u64::try_from(block_height)?, block_time, tx_index, txid);
-
-          match invoke_result.operate_event.as_str() {
-            "tx_events_init_contract" => {
-              self.write_to_file(format!("cmd;{0};tx_events_init_contract;{1};{2};{3};{4},{5};", self.height, txid, invoke_result.outpoint, invoke_result.stf, invoke_result.id, invoke_result.amount), false)?;
-            },
-            "tx_events_burn2" => {
-              self.write_to_file(format!("cmd;{0};tx_events_burn2;{1};{2};{3};{4};{5},{6}{7};", self.height, txid, invoke_result.outpoint, invoke_result.stf, invoke_result.to_contract_id, invoke_result.id, invoke_result.amount, invoke_result.script_pub_key_hex), false)?;
-            },
-            "tx_events_burn3" => {
-              self.write_to_file(format!("cmd;{0};tx_events_burn3;{1};{2};{3};{4};{5},{6}{7};", self.height, txid, invoke_result.outpoint, invoke_result.stf, invoke_result.to_contract_id, invoke_result.id, invoke_result.amount, invoke_result.script_pub_key_hex), false)?;
-            },
-            "tx_events_mint2" => {
-              self.write_to_file(format!("cmd;{0};tx_events_mint2;{1};{2};{3};{4},{5};", self.height, txid, invoke_result.outpoint, invoke_result.stf, invoke_result.id, invoke_result.amount), false)?;
-            },
-            "tx_events_mint3" => {
-              self.write_to_file(format!("cmd;{0};tx_events_mint3;{1};{2};{3};{4},{5};", self.height, txid, invoke_result.outpoint, invoke_result.stf, invoke_result.id, invoke_result.amount), false)?;
-            },
-            _ => {}
-          }
+          guard.invoke_contract_event(runestone, tx, u64::try_from(block_height)?, block_time, tx_index, txid, self.chain.to_string().as_str());
         }
       }
 
@@ -257,14 +216,14 @@ impl RuneUpdater<'_, '_, '_> {
 
     for (outpoint, balances) in tx_inputs {
       for (rune_id, amount) in balances {
-        self.write_to_file(format!("cmd;{0};tx_events_input;{1};{2};{3};{4}", self.height, txid, outpoint, rune_id, amount), false)?;
+        self.write_to_file(format!("cmd;{0};tx_events_input;{1};{2};{3};{4}", self.height, txid, outpoint, rune_id, amount), false, log_to_file)?;
       }
     }
     for (rune_id, amount) in new_rune_allocations {
-      self.write_to_file(format!("cmd;{0};tx_events_new_rune_allocation;{1};{2};{3}", self.height, txid, rune_id, amount), false)?;
+      self.write_to_file(format!("cmd;{0};tx_events_new_rune_allocation;{1};{2};{3}", self.height, txid, rune_id, amount), false, log_to_file)?;
     }
     for (rune_id, amount) in mints {
-      self.write_to_file(format!("cmd;{0};tx_events_mint;{1};{2};{3}", self.height, txid, rune_id, amount), false)?;
+      self.write_to_file(format!("cmd;{0};tx_events_mint;{1};{2};{3}", self.height, txid, rune_id, amount), false, log_to_file)?;
     }
 
     // update outpoint balances
@@ -304,7 +263,7 @@ impl RuneUpdater<'_, '_, '_> {
         balances_str += &format!("{0}-{1},", id, balance.n());
         let scriptpubkeyhex = hex::encode(tx.output[vout].script_pubkey.clone().into_bytes());
 
-        self.write_to_file(format!("cmd;{0};tx_events_output;{1};{2};{3};{4};{5}", self.height, txid, outpoint, id, balance.n(), scriptpubkeyhex), false)?;
+        self.write_to_file(format!("cmd;{0};tx_events_output;{1};{2};{3};{4};{5}", self.height, txid, outpoint, id, balance.n(), scriptpubkeyhex), false, log_to_file)?;
 
         if let Some(sender) = self.event_sender {
           sender.blocking_send(Event::RuneTransferred {
@@ -321,13 +280,13 @@ impl RuneUpdater<'_, '_, '_> {
         .outpoint_to_balances
         .insert(&outpoint.store(), buffer.as_slice())?;
 
-      self.write_to_file(format!("cmd;{0};outpoint_to_balances_insert;{1};{2};{3}", self.height, scriptpubkeyhex, outpoint, balances_str), false)?;
+      self.write_to_file(format!("cmd;{0};outpoint_to_balances_insert;{1};{2};{3}", self.height, scriptpubkeyhex, outpoint, balances_str), false, log_to_file)?;
     }
 
     // increment entries with burned runes
     for (id, amount) in burned {
       *self.burned.entry(id).or_default() += amount;
-      self.write_to_file(format!("cmd;{0};tx_events_burn;{1};{2};{3}", self.height, txid, id, amount.n()), false)?;
+      self.write_to_file(format!("cmd;{0};tx_events_burn;{1};{2};{3}", self.height, txid, id, amount.n()), false, log_to_file)?;
 
       if let Some(sender) = self.event_sender {
         sender.blocking_send(Event::RuneBurned {
@@ -353,20 +312,20 @@ impl RuneUpdater<'_, '_, '_> {
     let minted_clone = self.minted.clone();
     for (rune_id, _burned) in &burned_clone {
       let entry = RuneEntry::load(self.id_to_entry.get(&rune_id.store())?.unwrap().value());
-      self.write_to_file(format!("cmd;{0};id_to_entry_update;{1};{2};{3}", self.height, rune_id, entry.burned, entry.mints), false)?;
+      self.write_to_file(format!("cmd;{0};id_to_entry_update;{1};{2};{3}", self.height, rune_id, entry.burned, entry.mints), false, log_to_file)?;
     }
 
     for (rune_id, _amount) in &minted_clone {
       let burned_amount = burned_clone.get(&rune_id);
       if burned_amount.is_none() {
         let entry = RuneEntry::load(self.id_to_entry.get(&rune_id.store())?.unwrap().value());
-        self.write_to_file(format!("cmd;{0};id_to_entry_update;{1};{2};{3}", self.height, rune_id, entry.burned, entry.mints), false)?;
+        self.write_to_file(format!("cmd;{0};id_to_entry_update;{1};{2};{3}", self.height, rune_id, entry.burned, entry.mints), false, log_to_file)?;
       }
     }
 
     if !self.first_in_block {
       println!("cmd;{0};block_end", self.height);
-      self.write_to_file(format!("cmd;{0};block_end", self.height), true)?;
+      self.write_to_file(format!("cmd;{0};block_end", self.height), true, log_to_file)?;
     }
 
     Ok(())
@@ -457,7 +416,7 @@ impl RuneUpdater<'_, '_, '_> {
     self.write_to_file(format!("cmd;{0};id_to_entry_insert;{1};{2};{3};{4};{5};{6};{7};{8};{9};{10};{11};{12};{13};{14}",
                                self.height, id, entry.block, entry.burned, entry.divisibility,
                                entry.etching, terms_str, entry.mints, entry.number, entry.premine, entry.spaced_rune.rune, entry.spaced_rune.spacers,
-                               entry.symbol.map_or(String::from("null"), |_| hex::encode(buff_for_symbol)), entry.timestamp, turbo_str), false)?;
+                               entry.symbol.map_or(String::from("null"), |_| hex::encode(buff_for_symbol)), entry.timestamp, turbo_str), false, log_to_file)?;
 
     if let Some(sender) = self.event_sender {
       sender.blocking_send(Event::RuneEtched {
@@ -551,7 +510,7 @@ impl RuneUpdater<'_, '_, '_> {
     Ok(Some(Lot(amount)))
   }
 
-  fn tx_commits_to_rune(&self, tx: &Transaction, rune: Rune) -> Result<bool> {
+  fn tx_commits_to_rune(&mut self, tx: &Transaction, rune: Rune) -> Result<bool> {
     let commitment = rune.commitment();
 
     for input in &tx.input {
@@ -646,7 +605,7 @@ impl RuneUpdater<'_, '_, '_> {
       }
 
       if removed {
-        self.write_to_file(format!("cmd;{0};outpoint_to_balances_remove;{1}", self.height, input.previous_output), false)?;
+        self.write_to_file(format!("cmd;{0};outpoint_to_balances_remove;{1}", self.height, input.previous_output), false, log_to_file)?;
       }
     }
 
