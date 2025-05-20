@@ -53,9 +53,9 @@ impl RunesStateMachine {
                 };
 
                 let amm_liquidity_contract = Arc::new(RwLock::new(AutomatedLiquidityContract {
-                    ticker0: etching.burn3_able_rune_ids.0.unwrap().to_string(),
+                    ticker0: etching.burn3able_rune_ids.0.unwrap().to_string(),
                     ticker0_decimals: 0,
-                    ticker1: etching.burn3_able_rune_ids.1.unwrap().to_string(),
+                    ticker1: etching.burn3able_rune_ids.1.unwrap().to_string(),
                     ticker1_decimals: 0,
                     supply: 0.0,
                     reserve0: 0.0,
@@ -65,8 +65,7 @@ impl RunesStateMachine {
                         myself: RuneId{ block, tx },
                         rune: etching.rune.unwrap(),
                         contract: ContractTemplate::AMM.to_u8(),
-                        mint2_amount: 0,
-                        burn3_able_rune_ids: etching.burn3_able_rune_ids,
+                        burn3able_rune_ids: etching.burn3able_rune_ids,
                         trading: etching.trading,
                         sba2: Default::default(),
                         sba3: Default::default(),
@@ -116,8 +115,7 @@ impl RunesStateMachine {
                         myself: RuneId{ block, tx },
                         rune: etching.rune.unwrap_or_default(),
                         contract: ContractTemplate::Base.to_u8(),
-                        mint2_amount: 0,
-                        burn3_able_rune_ids: (None, None),
+                        burn3able_rune_ids: (None, None),
                         trading: None,
                         sba2: Default::default(),
                         sba3: Default::default(),

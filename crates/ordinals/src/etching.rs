@@ -12,8 +12,7 @@ pub struct Etching {
   pub terms: Option<Terms>,
   pub turbo: bool,
   pub contract: Option<u8>,
-  pub mint2_amount: Option<u128>,
-  pub burn3_able_rune_ids: (Option<Rune>, Option<Rune>),
+  pub burn3able_rune_ids: (Option<RuneId>, Option<RuneId>),
   pub trading: Option<Trading>,
 }
 

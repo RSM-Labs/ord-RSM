@@ -101,9 +101,10 @@ impl Runestone {
       }),
       turbo: Flag::Turbo.take(&mut flags),
       contract: Tag::Contract.take(&mut  fields, |[contract]| {Some(contract as u8)}),
-      mint2_amount: Tag::Mint2Amount.take(&mut fields, |[mint2_amount]| {Some(mint2_amount)}),
-      burn3_able_rune_ids: (Tag::Burn3AbleRuneIdsStart.take(&mut fields, |[rune]| {Some(Rune(rune))}),
-                            Tag::Burn3AbleRuneIdsEnd.take(&mut fields, |[rune]| {Some(Rune(rune))})),
+      burn3able_rune_ids: (RuneId::new(Tag::Burn3AbleRuneId0Block.take(&mut fields, |[block]| u64::try_from(block).ok()).unwrap()
+                                        , Tag::Burn3AbleRuneId0Tx.take(&mut fields, |[tx]| u32::try_from(tx).ok()).unwrap()),
+                            RuneId::new(Tag::Burn3AbleRuneId1Block.take(&mut fields, |[block]| u64::try_from(block).ok()).unwrap()
+                                        , Tag::Burn3AbleRuneId1Tx.take(&mut fields, |[tx]| u32::try_from(tx).ok()).unwrap())),
       trading: Flag::Trading.take(&mut flags).then(|| Trading {
         lp_fee_percentage: Tag::LpFeePercentage.take(&mut fields, |[lp_fee_percentage]| {u32::try_from(lp_fee_percentage).ok()}),
         service_fee_percentage: Tag::ServiceFeePercentage.take(&mut fields, |[service_fee_percentage]| {u32::try_from(service_fee_percentage).ok()}),
@@ -340,11 +341,13 @@ impl Runestone {
       }
 
       Tag::Contract.encode_option(etching.contract, &mut payload);
-      Tag::Mint2Amount.encode_option(etching.mint2_amount, &mut payload);
 
-      let (burn3_able_rune_id0, burn3_able_rune_id1) = etching.burn3_able_rune_ids;
-      Tag::Burn3AbleRuneIdsStart.encode_option(burn3_able_rune_id0.map(|rune| rune.0), &mut payload);
-      Tag::Burn3AbleRuneIdsEnd.encode_option(burn3_able_rune_id1.map(|rune| rune.0), &mut payload);
+      if let (Some(burn3able_rune_id0), Some(burn3able_rune_id1)) = etching.burn3able_rune_ids{
+        Tag::Burn3AbleRuneId0Block.encode_option(Option::from(burn3able_rune_id0.block), &mut payload);
+        Tag::Burn3AbleRuneId0Tx.encode_option(Option::from(burn3able_rune_id0.tx), &mut payload);
+        Tag::Burn3AbleRuneId1Block.encode_option(Option::from(burn3able_rune_id1.block), &mut payload);
+        Tag::Burn3AbleRuneId1Tx.encode_option(Option::from(burn3able_rune_id1.tx), &mut payload);
+      }
 
       if let Some(trading) = etching.trading {
         Tag::LpFeePercentage.encode_option(trading.lp_fee_percentage, &mut payload);
@@ -1487,8 +1490,7 @@ mod tests {
           }),
           turbo: true,
           contract: None,
-          mint2_amount: None,
-          burn3_able_rune_ids: (None, None),
+          burn3able_rune_ids: (None, None),
           trading: None,
         }),
         pointer: Some(0),
@@ -1807,8 +1809,7 @@ mod tests {
         }),
         turbo: true,
         contract: None,
-        mint2_amount: None,
-        burn3_able_rune_ids: (None, None),
+        burn3able_rune_ids: (None, None),
         trading: None,
         premine: Some(u64::MAX.into()),
         rune: Some(Rune(u128::MAX)),
@@ -2085,8 +2086,7 @@ mod tests {
           }),
           turbo: true,
           contract: None,
-          mint2_amount: None,
-          burn3_able_rune_ids: (None, None),
+          burn3able_rune_ids: (None, None),
           trading: None,
         }),
         mint: Some(RuneId::new(17, 18).unwrap()),
@@ -2151,8 +2151,7 @@ mod tests {
           terms: None,
           turbo: false,
           contract: None,
-          mint2_amount: None,
-          burn3_able_rune_ids: (None, None),
+          burn3able_rune_ids: (None, None),
           trading: None,
         }),
         ..default()
@@ -2172,8 +2171,7 @@ mod tests {
           terms: None,
           turbo: false,
           contract: None,
-          mint2_amount: None,
-          burn3_able_rune_ids: (None, None),
+          burn3able_rune_ids: (None, None),
           trading: None,
         }),
         ..default()

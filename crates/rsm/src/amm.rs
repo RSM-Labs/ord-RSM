@@ -33,8 +33,7 @@ impl Contract for AutomatedLiquidityContract {
             myself: self.wrapped_rune_contract.myself,
             rune: self.wrapped_rune_contract.rune,
             contract: self.wrapped_rune_contract.contract,
-            mint2_amount: self.wrapped_rune_contract.mint2_amount,
-            burn3_able_rune_ids: self.wrapped_rune_contract.burn3_able_rune_ids,
+            burn3able_rune_ids: self.wrapped_rune_contract.burn3able_rune_ids,
             trading: self.wrapped_rune_contract.trading,
         };
         serde_json::to_string(&contract_info).unwrap()

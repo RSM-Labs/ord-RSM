@@ -1,5 +1,7 @@
+use bitcoin::Network::Bitcoin;
 use parking_lot::RwLock;
-use rsm::runes_state_machine::RunesStateMachine;
+use ordinals::mint::{Mint2, Mint3};
+use rsm::runes_state_machine::{RunesStateMachine, StateTransitionName};
 use ordinals::opi_log::log_to_file;
 use super::*;
 
@@ -158,6 +160,11 @@ impl RuneUpdater<'_, '_, '_> {
         if runestone_fields.iter().any(|&x| x) {
           let mut guard = self.runes_state_machine.write();
           guard.invoke_contract_event(runestone, tx, u64::try_from(block_height)?, block_time, tx_index, txid, self.chain.to_string().as_str());
+
+          //Mint2 w2
+          self.process_mint2_w2(&runestone.mint2s, txid, tx)?;
+          //Mint3 w3
+          self.process_mint3_w3(&runestone.mint3s, txid, tx)?;
         }
       }
 
@@ -510,6 +517,19 @@ impl RuneUpdater<'_, '_, '_> {
     Ok(Some(Lot(amount)))
   }
 
+  fn mint2(&mut self, id: RuneId, amount: u128, output: u32, txid: Txid) -> Result<(), MintError>{
+    let outpoint = OutPoint {
+      txid,
+      vout:output,
+    };
+    let mut buffer: Vec<u8> = Vec::new();
+    buffer.clear();
+    Index::encode_rune_balance(id, amount, &mut buffer);
+    self.outpoint_to_balances.insert(&outpoint.store(), buffer.as_slice())
+        .map_err(|_| MintError::Unmintable)?;
+    Ok(())
+  }
+
   fn tx_commits_to_rune(&mut self, tx: &Transaction, rune: Rune) -> Result<bool> {
     let commitment = rune.commitment();
 
@@ -610,5 +630,62 @@ impl RuneUpdater<'_, '_, '_> {
     }
 
     Ok((unallocated, tx_inputs))
+  }
+
+  fn extract_edict_address(edict: &Edict, transaction: &Transaction) -> Option<Address> {
+    let tx_out = &transaction.output[edict.output as usize];
+    let script_pub_key = &tx_out.script_pubkey;
+    Address::from_script(script_pub_key, Bitcoin).ok()
+  }
+
+  fn process_mint2_w2(&mut self, mint2s: &Option<Vec<Mint2>>, txid: Txid, tx: &Transaction) -> Result {
+    if let Some(mint2s) = mint2s {
+      for mint2 in mint2s {
+        let Some(stf) = mint2.state_transition_function else { continue };
+        if StateTransitionName::from(stf) != StateTransitionName::W2 {
+          continue;
+        }
+
+        let Some(edicts) = &mint2.edicts else { continue };
+        for edict in edicts {
+          let Some(_addr) = Self::extract_edict_address(edict, tx) else {
+            continue;
+          };
+          self.mint2(edict.id, edict.amount, edict.output, txid)
+              .map_err(|e| anyhow!("process_mint2_w2 failed: {:?}", e))?;
+        }
+      }
+    }
+    Ok(())
+  }
+
+  fn process_mint3_w3(&mut self, mint3s: &Option<Vec<Mint3>>, txid: Txid, tx: &Transaction) ->Result {
+    if let Some(mint3s) = mint3s {
+      for mint3 in mint3s {
+        let Some(stf) = mint3.state_transition_function else { continue };
+        if StateTransitionName::from(stf) != StateTransitionName::W3 {
+          continue;
+        }
+
+        let Some(edicts) = &mint3.edicts else { continue };
+        for edict in edicts {
+          let Some(_addr) = Self::extract_edict_address(edict, tx) else {
+            continue;
+          };
+
+          let outpoint = OutPoint {
+            txid,
+            vout: edict.output,
+          };
+          let mut buffer = Vec::new();
+          Index::encode_rune_balance(edict.id, edict.amount, &mut buffer);
+
+          self.outpoint_to_balances
+              .insert(&outpoint.store(), buffer.as_slice())
+              .map_err(|e| anyhow!("process_mint3_w3 failed: {:?}", e))?;
+        }
+      }
+    }
+    Ok(())
   }
 }
