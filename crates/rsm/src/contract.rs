@@ -396,3 +396,193 @@ static CONTRACT_ACTIVATION: phf::Map<&str, u64> = phf_map! {
     "testnet4:6" => 0,
     "testnet4:7" => 0,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_initialization() {
+        let contract = WrappedRuneContract::default();
+
+        assert!(contract.parent.is_none());
+        assert_eq!(contract.myself, RuneId::default());
+        assert_eq!(contract.rune, Rune::default());
+        assert_eq!(contract.contract, 0);
+        assert_eq!(contract.burn3able_rune_ids, (None, None));
+        assert!(contract.trading.is_none());
+        assert!(contract.sba2.is_empty());
+        assert!(contract.sba3.is_empty());
+        assert!(contract.sb2.is_empty());
+        assert!(contract.sb3.is_empty());
+    }
+
+    #[test]
+    fn test_sb2_mint_and_get_state() {
+        let mut contract = WrappedRuneContract::default();
+        let address = "address1";
+        let ticker = "TICKER1";
+        let value = 100.0;
+
+        // Initial state should be 0
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, address, ticker), 0.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", ticker), 0.0);
+
+        // Mint and check state
+        contract.sb2_mint(address, ticker, value);
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, address, ticker), value);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", ticker), value);
+
+        // Mint again and check accumulation
+        contract.sb2_mint(address, ticker, value);
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, address, ticker), value * 2.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", ticker), value * 2.0);
+    }
+
+    #[test]
+    fn test_sb3_mint_and_get_state() {
+        let mut contract = WrappedRuneContract::default();
+        let address = "address2";
+        let ticker = "TICKER2";
+        let value = 50.0;
+
+        // Initial state should be 0
+        assert_eq!(contract.get_state(State::StateBalanceForMint3, address, ticker), 0.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint3, "", ticker), 0.0);
+
+        // Mint and check state
+        contract.sb3_mint(address, ticker, value);
+        assert_eq!(contract.get_state(State::StateBalanceForMint3, address, ticker), value);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint3, "", ticker), value);
+
+        // Mint again and check accumulation
+        contract.sb3_mint(address, ticker, value);
+        assert_eq!(contract.get_state(State::StateBalanceForMint3, address, ticker), value * 2.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint3, "", ticker), value * 2.0);
+    }
+
+    #[test]
+    fn test_sb2_burn() {
+        let mut contract = WrappedRuneContract::default();
+        let address = "address3";
+        let ticker = "TICKER3";
+        let mint_value = 200.0;
+        let burn_value = 75.0;
+
+        // Mint first
+        contract.sb2_mint(address, ticker, mint_value);
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, address, ticker), mint_value);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", ticker), mint_value);
+
+        // Burn and check
+        contract.sb2_burn(address, ticker, burn_value);
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, address, ticker), mint_value - burn_value);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", ticker), mint_value - burn_value);
+
+        // Burn more than available should not go negative
+        contract.sb2_burn(address, ticker, mint_value * 2.0);
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, address, ticker), 0.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", ticker), 0.0);
+    }
+
+    #[test]
+    fn test_sb3_burn() {
+        let mut contract = WrappedRuneContract::default();
+        let address = "address4";
+        let ticker = "TICKER4";
+        let mint_value = 300.0;
+        let burn_value = 125.0;
+
+        // Mint first
+        contract.sb3_mint(address, ticker, mint_value);
+        assert_eq!(contract.get_state(State::StateBalanceForMint3, address, ticker), mint_value);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint3, "", ticker), mint_value);
+
+        // Burn and check
+        contract.sb3_burn(address, ticker, burn_value);
+        assert_eq!(contract.get_state(State::StateBalanceForMint3, address, ticker), mint_value - burn_value);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint3, "", ticker), mint_value - burn_value);
+
+        // Burn more than available should not go negative
+        contract.sb3_burn(address, ticker, mint_value * 2.0);
+        assert_eq!(contract.get_state(State::StateBalanceForMint3, address, ticker), 0.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint3, "", ticker), 0.0);
+    }
+
+    #[test]
+    fn test_invalid_mint_and_burn() {
+        let mut contract = WrappedRuneContract::default();
+
+        // Test invalid mint operations
+        contract.sb2_mint("", "TICKER", 100.0); // empty address
+        contract.sb2_mint("address", "", 100.0); // empty ticker
+        contract.sb2_mint("address", "TICKER", -100.0); // negative value
+        contract.sb2_mint("address", "TICKER", f64::NAN); // NaN value
+
+        // Verify no state was changed
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, "address", "TICKER"), 0.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", "TICKER"), 0.0);
+
+        // Test invalid burn operations
+        contract.sb2_mint("address", "TICKER", 100.0); // first mint valid value
+        contract.sb2_burn("", "TICKER", 50.0); // empty address
+        contract.sb2_burn("address", "", 50.0); // empty ticker
+        contract.sb2_burn("address", "TICKER", -50.0); // negative value
+        contract.sb2_burn("address", "TICKER", f64::NAN); // NaN value
+
+        // Verify state wasn't changed by invalid burns
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, "address", "TICKER"), 100.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", "TICKER"), 100.0);
+    }
+
+    #[test]
+    fn test_multiple_addresses_and_tickers() {
+        let mut contract = WrappedRuneContract::default();
+
+        // Test with multiple addresses
+        contract.sb2_mint("addr1", "TICKER", 100.0);
+        contract.sb2_mint("addr2", "TICKER", 200.0);
+
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, "addr1", "TICKER"), 100.0);
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, "addr2", "TICKER"), 200.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", "TICKER"), 300.0);
+
+        // Test with multiple tickers
+        contract.sb2_mint("addr1", "TICKER1", 50.0);
+        contract.sb2_mint("addr1", "TICKER2", 75.0);
+
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, "addr1", "TICKER1"), 50.0);
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, "addr1", "TICKER2"), 75.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", "TICKER1"), 50.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", "TICKER2"), 75.0);
+    }
+
+    #[test]
+    fn test_burn_state_function() {
+        let mut contract = WrappedRuneContract::default();
+        let address = "address5";
+        let ticker = "TICKER5";
+        let value = 150.0;
+
+        contract.sb2_mint(address, ticker, value);
+        contract.burn_state(State::StateBalanceForMint2, address, ticker, 50.0);
+
+        assert_eq!(contract.get_state(State::StateBalanceForMint2, address, ticker), 100.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint2, "", ticker), 100.0);
+
+        // Test with StateBalanceForMint3
+        contract.sb3_mint(address, ticker, value);
+        contract.burn_state(State::StateBalanceForMint3, address, ticker, 50.0);
+
+        assert_eq!(contract.get_state(State::StateBalanceForMint3, address, ticker), 100.0);
+        assert_eq!(contract.get_state(State::StateBalanceOfApplicationForMint3, "", ticker), 100.0);
+    }
+
+    #[test]
+    fn test_get_myself_ticker() {
+        let mut contract = WrappedRuneContract::default();
+        // Assuming RuneId::to_str() returns a string representation
+        let expected = contract.myself.to_str();
+        assert_eq!(contract.get_myself_ticker(), expected);
+    }
+}

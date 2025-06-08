@@ -72,8 +72,9 @@ impl Runestone {
       }),
       premine: Tag::Premine.take(&mut fields, |[premine]| Some(premine)),
       rune: Tag::Rune.take(&mut fields, |[rune]| Some(Rune(rune))),
-      parent: (Tag::ParentBlock.take(&mut fields, |[block]| u64::try_from(block).ok()),
-               Tag::ParentTx.take(&mut fields, |[tx]| u32::try_from(tx).ok())),
+      parent: Tag::Parent.take(&mut fields, |[block, tx]| {
+        RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
+      }),
       spacers: Tag::Spacers.take(&mut fields, |[spacers]| {
         let spacers = u32::try_from(spacers).ok()?;
         (spacers <= Etching::MAX_SPACERS).then_some(spacers)
@@ -101,10 +102,10 @@ impl Runestone {
       }),
       turbo: Flag::Turbo.take(&mut flags),
       contract: Tag::Contract.take(&mut  fields, |[contract]| {Some(contract as u8)}),
-      burn3able_rune_ids: (RuneId::new(Tag::Burn3AbleRuneId0Block.take(&mut fields, |[block]| u64::try_from(block).ok()).unwrap()
-                                        , Tag::Burn3AbleRuneId0Tx.take(&mut fields, |[tx]| u32::try_from(tx).ok()).unwrap()),
-                            RuneId::new(Tag::Burn3AbleRuneId1Block.take(&mut fields, |[block]| u64::try_from(block).ok()).unwrap()
-                                        , Tag::Burn3AbleRuneId1Tx.take(&mut fields, |[tx]| u32::try_from(tx).ok()).unwrap())),
+      burn3able_rune_ids: (Tag::Burn3AbleRuneId0.take(&mut fields, |[block, tx]| {
+                              RuneId::new(block.try_into().ok()?, tx.try_into().ok()?) }),
+                           Tag::Burn3AbleRuneId1.take(&mut fields, |[block, tx]| {
+                              RuneId::new(block.try_into().ok()?, tx.try_into().ok()?) })),
       trading: Flag::Trading.take(&mut flags).then(|| Trading {
         lp_fee_percentage: Tag::LpFeePercentage.take(&mut fields, |[lp_fee_percentage]| {u32::try_from(lp_fee_percentage).ok()}),
         service_fee_percentage: Tag::ServiceFeePercentage.take(&mut fields, |[service_fee_percentage]| {u32::try_from(service_fee_percentage).ok()}),
@@ -327,9 +328,9 @@ impl Runestone {
       Tag::Symbol.encode_option(etching.symbol, &mut payload);
       Tag::Premine.encode_option(etching.premine, &mut payload);
 
-      let (parent_block, parent_tx) = etching.parent;
-      Tag::ParentBlock.encode_option(parent_block, &mut payload);
-      Tag::ParentTx.encode_option(parent_tx, &mut payload);
+      if let Some(RuneId { block, tx }) = etching.parent {
+        Tag::Parent.encode([block.into(), tx.into()], &mut payload);
+      }
 
       if let Some(terms) = etching.terms {
         Tag::Amount.encode_option(terms.amount, &mut payload);
@@ -343,10 +344,8 @@ impl Runestone {
       Tag::Contract.encode_option(etching.contract, &mut payload);
 
       if let (Some(burn3able_rune_id0), Some(burn3able_rune_id1)) = etching.burn3able_rune_ids{
-        Tag::Burn3AbleRuneId0Block.encode_option(Option::from(burn3able_rune_id0.block), &mut payload);
-        Tag::Burn3AbleRuneId0Tx.encode_option(Option::from(burn3able_rune_id0.tx), &mut payload);
-        Tag::Burn3AbleRuneId1Block.encode_option(Option::from(burn3able_rune_id1.block), &mut payload);
-        Tag::Burn3AbleRuneId1Tx.encode_option(Option::from(burn3able_rune_id1.tx), &mut payload);
+          Tag::Burn3AbleRuneId0.encode([burn3able_rune_id0.block.into(), burn3able_rune_id0.tx.into()], &mut payload);
+          Tag::Burn3AbleRuneId1.encode([burn3able_rune_id1.block.into(), burn3able_rune_id1.tx.into()], &mut payload);
       }
 
       if let Some(trading) = etching.trading {
@@ -1479,7 +1478,7 @@ mod tests {
           divisibility: Some(1),
           premine: Some(8),
           rune: Some(Rune(4)),
-          parent: (None, None),
+          parent: None,
           spacers: Some(5),
           symbol: Some('a'),
           terms: Some(Terms {
@@ -1815,7 +1814,7 @@ mod tests {
         rune: Some(Rune(u128::MAX)),
         symbol: Some('\u{10FFFF}'),
         spacers: Some(Etching::MAX_SPACERS),
-        parent: (None, None),
+        parent: None,
       }),
       89,
     );
@@ -2075,7 +2074,7 @@ mod tests {
           divisibility: Some(7),
           premine: Some(8),
           rune: Some(Rune(9)),
-          parent: (None, None),
+          parent: None,
           spacers: Some(10),
           symbol: Some('@'),
           terms: Some(Terms {
@@ -2145,7 +2144,7 @@ mod tests {
           divisibility: None,
           premine: None,
           rune: Some(Rune(3)),
-          parent: (None, None),
+          parent: None,
           spacers: None,
           symbol: None,
           terms: None,
@@ -2165,7 +2164,7 @@ mod tests {
           divisibility: None,
           premine: None,
           rune: None,
-          parent: (None, None),
+          parent: None,
           spacers: None,
           symbol: None,
           terms: None,

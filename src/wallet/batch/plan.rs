@@ -453,7 +453,7 @@ impl Plan {
           divisibility: (etching.divisibility > 0).then_some(etching.divisibility),
           premine: (premine > 0).then_some(premine),
           rune: Some(etching.rune.rune),
-          parent: (None, None),
+          parent: None,
           spacers: (etching.rune.spacers > 0).then_some(etching.rune.spacers),
           symbol: Some(etching.symbol),
           terms: etching

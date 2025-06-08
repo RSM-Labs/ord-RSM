@@ -6,7 +6,7 @@ pub struct Etching {
   pub divisibility: Option<u8>,
   pub premine: Option<u128>,
   pub rune: Option<Rune>,
-  pub parent: (Option<u64>, Option<u32>),
+  pub parent: Option<RuneId>,
   pub spacers: Option<u32>,
   pub symbol: Option<char>,
   pub terms: Option<Terms>,

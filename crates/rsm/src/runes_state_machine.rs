@@ -38,7 +38,7 @@ impl RunesStateMachine {
                 if ContractValidator::can_init(block, chain, ContractTemplate::AMM).is_ok() {
                     return println!("cannot init AMM contract at block {}", block)
                 }
-                if let (Some(block), Some(tx)) = etching.parent {
+                if let Some(RuneId { block, tx }) = etching.parent {
                     let key = format!("{}:{}", block, tx);
                     if !self.rsm_interpreter.contracts.contains_key(&key) {
                         return println!("Parent contract is not exist!");
@@ -46,11 +46,6 @@ impl RunesStateMachine {
                 }
 
                 let contract_id = format!("{}:{}", block, tx);
-
-                let parent = match etching.parent {
-                    (Some(block), Some(tx)) => Some(RuneId {block, tx}),
-                    _ => {None}
-                };
 
                 let amm_liquidity_contract = Arc::new(RwLock::new(AutomatedLiquidityContract {
                     ticker0: etching.burn3able_rune_ids.0.unwrap().to_string(),
@@ -61,7 +56,7 @@ impl RunesStateMachine {
                     reserve0: 0.0,
                     reserve1: 0.0,
                     wrapped_rune_contract: WrappedRuneContract {
-                        parent,
+                        parent: etching.parent,
                         myself: RuneId{ block, tx },
                         rune: etching.rune.unwrap(),
                         contract: ContractTemplate::AMM.to_u8(),
@@ -95,7 +90,7 @@ impl RunesStateMachine {
                 println!("Unsupported contract!");
             }
             _ => {
-                if let (Some(block), Some(tx)) = etching.parent {
+                if let Some(RuneId { block, tx }) = etching.parent {
                     let key = format!("{}:{}", block, tx);
                     if !self.rsm_interpreter.contracts.contains_key(&key) {
                         return println!("Parent contract is not exist!");
@@ -104,14 +99,9 @@ impl RunesStateMachine {
 
                 let contract_id = format!("{}:{}", block, tx);
 
-                let parent = match etching.parent {
-                    (Some(block), Some(tx)) => Some(RuneId {block, tx}),
-                    _ => {None}
-                };
-
                 let base_contract = Arc::new(RwLock::new(BaseContract {
                     wrapped_rune_contract: WrappedRuneContract {
-                        parent,
+                        parent: etching.parent,
                         myself: RuneId{ block, tx },
                         rune: etching.rune.unwrap_or_default(),
                         contract: ContractTemplate::Base.to_u8(),
